@@ -171,17 +171,6 @@ class TutorialCleanupAnalysisService:
                     job_uuid=payload.job_uuid,
                 ))
         
-        # Upload to R2 storage if configured
-        if all([settings.r2_endpoint, settings.r2_access_key_id, settings.r2_secret_access_key, settings.r2_bucket_name]):
-            try:
-                remote_key = f'tutorial-cleanups/{payload.job_uuid}/final.mp4'
-                storage_url = self.artifact_writer.upload_to_r2(
-                    local_path=Path(final_video_path),
-                    remote_key=remote_key,
-                )
-            except Exception as e:
-                diagnostics['r2_upload_error'] = str(e)
-
         diagnostics: dict[str, Any] = {
             'script_available': bool(script_text.strip()),
             'script_sections_detected': len(script_sections),
@@ -203,6 +192,17 @@ class TutorialCleanupAnalysisService:
             **vad_diagnostics,
         }
 
+        # Upload to R2 storage if configured
+        if all([settings.r2_endpoint, settings.r2_access_key_id, settings.r2_secret_access_key, settings.r2_bucket_name]):
+            try:
+                remote_key = f'tutorial-cleanups/{payload.job_uuid}/final.mp4'
+                storage_url = self.artifact_writer.upload_to_r2(
+                    local_path=Path(final_video_path),
+                    remote_key=remote_key,
+                )
+            except Exception as e:
+                diagnostics['r2_upload_error'] = str(e)
+
         artifacts = None
         if payload.rules.store_artifacts:
             artifacts = self._write_artifacts(
@@ -218,6 +218,8 @@ class TutorialCleanupAnalysisService:
                 cleaned_audio=cleaned_audio,
                 media_render=media_render,
                 remotion_manifest_path=remotion_manifest_path,
+                final_video_path=final_video_path,
+                storage_url=storage_url,
             )
 
         return AnalysisResponse(
@@ -705,6 +707,8 @@ class TutorialCleanupAnalysisService:
         cleaned_audio: CleanedAudio,
         media_render: EditedMediaRender,
         remotion_manifest_path: str,
+        final_video_path: str,
+        storage_url: str | None,
     ) -> ArtifactsPayload:
         internal_alignment_payload = [
             {
