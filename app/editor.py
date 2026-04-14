@@ -187,12 +187,17 @@ class MediaEditingService:
             start = overlay['start_frame'] / settings.remotion_fps
             duration = overlay['duration_in_frames'] / settings.remotion_fps
             
-            filter_parts.append(
-                f'[{idx+1}:v]scale={settings.remotion_width}:{settings.remotion_height}:force_original_aspect_ratio=decrease,pad={settings.remotion_width}:{settings.remotion_height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p[ov{idx}]'
+            scale_filter = (
+                f'[{idx+1}:v]scale={settings.remotion_width}:{settings.remotion_height}:'
+                f'force_original_aspect_ratio=decrease,'
+                f'pad={settings.remotion_width}:{settings.remotion_height}:(ow-iw)/2:(oh-ih)/2,'
+                f'format=yuv420p[ov{idx}]'
             )
-            filter_parts.append(
-                f'[base]overlay={start}:enable="between(t,{start},{start+duration})"[tmp{idx}]'
+            filter_parts.append(scale_filter)
+            overlay_filter = (
+                f"[base]overlay={start}:enable='between(t,{start},{start+duration})'[tmp{idx}]"
             )
+            filter_parts.append(overlay_filter)
             filter_parts.append(f'[tmp{idx}]copy[base]')
 
         command = [
