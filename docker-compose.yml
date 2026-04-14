@@ -1,0 +1,21 @@
+services:
+  tutorial-cleanup-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vidula-tutorial-cleanup-api
+    ports:
+      - "8001:8000"
+    environment:
+      TUTORIAL_CLEANUP_API_TOKEN: "Q3rjv9LwX2mN8pK6sT1zY4aB7cD0eF5gH9jK2mP4rS6uV8xZ1nC3qW5yR7tU9iO"
+      TUTORIAL_CLEANUP_ARTIFACT_ROOT: "/data/artifacts"
+      TUTORIAL_CLEANUP_LOCAL_INPUT_ROOTS: "/workspace"
+      TUTORIAL_CLEANUP_PATH_MAP_FROM: ""
+      TUTORIAL_CLEANUP_PATH_MAP_TO: ""
+    volumes:
+      - ../../:/workspace:ro
+      - tutorial_cleanup_artifacts:/data/artifacts
+    restart: unless-stopped
+
+volumes:
+  tutorial_cleanup_artifacts:

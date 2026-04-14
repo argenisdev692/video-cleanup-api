@@ -1,0 +1,80 @@
+from __future__ import annotations
+
+from pathlib import Path
+from tempfile import gettempdir
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    app_name: str = 'Tutorial Cleanup API'
+    app_version: str = '0.2.0'
+    api_token: str = ''
+    artifact_root: str = str(Path(gettempdir()) / 'vidula' / 'tutorial-cleanup-api')
+    local_input_roots: tuple[str, ...] = ()
+    path_map_from: str = ''
+    path_map_to: str = ''
+    allow_remote_downloads: bool = True
+    download_timeout_seconds: int = 120
+    prefer_existing_transcript_sidecars: bool = True
+    enable_local_transcription: bool = True
+    transcription_model_size: str = 'tiny'
+    whisper_device: str = 'cpu'
+    whisper_compute_type: str = 'int8'
+    whisper_beam_size: int = 5
+    whisper_word_timestamps: bool = True
+    whisper_vad_filter: bool = False
+    whisper_vad_min_silence_ms: int = 500
+    default_language: str = 'es'
+    words_per_minute: int = 130
+    max_edit_plan_items: int = 30
+    ffmpeg_binary: str = 'ffmpeg'
+    audio_sample_rate: int = 16000
+    clean_highpass_hz: int = 80
+    clean_lowpass_hz: int = 12000
+    clean_afftdn_nf: int = -25
+    clean_target_lufs: float = -16.0
+    clean_true_peak: float = -1.5
+    clean_lra: int = 7
+    render_video_codec: str = 'libx264'
+    render_audio_codec: str = 'aac'
+    render_crf: int = 18
+    render_preset: str = 'medium'
+    render_min_segment_seconds: float = 0.25
+    remotion_composition_id: str = 'TutorialCapcutClean'
+    remotion_fps: int = 30
+    remotion_width: int = 1080
+    remotion_height: int = 1920
+    vad_use_onnx: bool = False
+    vad_threshold: float = 0.5
+    vad_min_speech_duration_ms: int = 200
+    vad_min_silence_duration_ms: int = 600
+    vad_speech_pad_ms: int = 120
+    filler_terms: tuple[str, ...] = (
+        'eh',
+        'emm',
+        'mmm',
+        'este',
+        'ehh',
+        'uh',
+        'umm',
+        'pues',
+    )
+    correction_terms: tuple[str, ...] = (
+        'mejor dicho',
+        'quiero decir',
+        'perdón',
+        'corrijo',
+        'rectifico',
+    )
+    # R2 Storage Configuration
+    r2_account_id: str = ''
+    r2_access_key_id: str = ''
+    r2_secret_access_key: str = ''
+    r2_bucket_name: str = ''
+    r2_endpoint: str = ''
+    r2_public_base_url: str = ''
+    model_config = SettingsConfigDict(env_prefix='TUTORIAL_CLEANUP_', extra='ignore')
+
+
+settings = Settings()
