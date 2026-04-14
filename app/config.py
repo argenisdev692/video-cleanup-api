@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import gettempdir
 
-from pydantic import field_validator
+from pydantic import field_validator, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,21 +12,20 @@ class Settings(BaseSettings):
     app_version: str = '0.2.0'
     api_token: str = ''
     artifact_root: str = str(Path(gettempdir()) / 'vidula' / 'tutorial-cleanup-api')
-    local_input_roots: tuple[str, ...] = ()
+    local_input_roots_str: str = ''
     path_map_from: str = ''
 
-    @field_validator('local_input_roots', mode='before')
-    @classmethod
-    def parse_local_input_roots(cls, v):
-        if v is None or v == '':
+    @computed_field
+    @property
+    def local_input_roots(self) -> tuple[str, ...]:
+        if not self.local_input_roots_str or self.local_input_roots_str.strip() == '':
             return ()
-        if isinstance(v, str):
-            # Split by comma or space
-            if ',' in v:
-                return tuple(item.strip() for item in v.split(',') if item.strip())
-            elif v.strip():
-                return (v.strip(),)
-        return v if isinstance(v, tuple) else ()
+        # Split by comma
+        if ',' in self.local_input_roots_str:
+            return tuple(item.strip() for item in self.local_input_roots_str.split(',') if item.strip())
+        # Single path
+        return (self.local_input_roots_str.strip(),)
+
     path_map_to: str = ''
     allow_remote_downloads: bool = True
     download_timeout_seconds: int = 120
