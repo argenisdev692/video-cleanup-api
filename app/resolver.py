@@ -56,11 +56,7 @@ class InputResolver:
     def _candidate_roots(self) -> list[Path]:
         roots = [Path.cwd()]
         raw_roots = settings.local_input_roots
-        iterable_roots = (
-            [part.strip() for part in raw_roots.split(';')]
-            if isinstance(raw_roots, str)
-            else list(raw_roots)
-        )
+        iterable_roots = list(raw_roots) if isinstance(raw_roots, tuple) else []
         for raw in iterable_roots:
             raw = raw.strip()
             if not raw:
