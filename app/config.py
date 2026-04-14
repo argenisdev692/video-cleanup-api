@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from tempfile import gettempdir
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +14,19 @@ class Settings(BaseSettings):
     artifact_root: str = str(Path(gettempdir()) / 'vidula' / 'tutorial-cleanup-api')
     local_input_roots: tuple[str, ...] = ()
     path_map_from: str = ''
+
+    @field_validator('local_input_roots', mode='before')
+    @classmethod
+    def parse_local_input_roots(cls, v):
+        if v is None or v == '':
+            return ()
+        if isinstance(v, str):
+            # Split by comma or space
+            if ',' in v:
+                return tuple(item.strip() for item in v.split(',') if item.strip())
+            elif v.strip():
+                return (v.strip(),)
+        return v if isinstance(v, tuple) else ()
     path_map_to: str = ''
     allow_remote_downloads: bool = True
     download_timeout_seconds: int = 120
