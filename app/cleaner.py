@@ -47,12 +47,17 @@ class VoiceCleanerService:
 
     def _build_filter_chain(self) -> str:
         filters = [
+            # 1. Corta ruido estructural: zumbidos bajos y hiss alto
             f'highpass=f={settings.clean_highpass_hz}',
             f'lowpass=f={settings.clean_lowpass_hz}',
-            f'afftdn=nf={settings.clean_afftdn_nf}:tn=1',  # Reducción de ruido más agresiva
-            'dynaudnorm=f=150:g=15',  # Normalización dinámica para voice-over
+            # 2. Reduccion de ruido FFT — elimina ruido de fondo constante (ventilador, AC, hiss)
+            f'afftdn=nf={settings.clean_afftdn_nf}:tn=1',
+            # 3. Noise gate — silencia el fondo entre palabras, sin esto el ruido residual sigue audible
+            f'agate=threshold={settings.clean_gate_threshold}:range=0.06:attack=10:release=200',
+            # 4. Compresor de voz — iguala dinamica y aplica makeup gain para subir el volumen
+            f'acompressor=threshold={settings.clean_comp_threshold}:ratio={settings.clean_comp_ratio}:attack=5:release=80:makeup={settings.clean_comp_makeup}',
+            # 5. Loudness normalization ITU-R BS.1770 — target profesional con true peak protegido
             f'loudnorm=I={settings.clean_target_lufs}:TP={settings.clean_true_peak}:LRA={settings.clean_lra}',
-            'volume=3dB',  # Boost adicional de 3dB para voice-over
         ]
         return ','.join(filters)
 
