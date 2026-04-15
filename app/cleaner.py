@@ -52,11 +52,20 @@ class VoiceCleanerService:
             f'lowpass=f={settings.clean_lowpass_hz}',
             # 2. Reduccion de ruido FFT — elimina ruido de fondo constante (ventilador, AC, hiss)
             f'afftdn=nf={settings.clean_afftdn_nf}:tn=1',
-            # 3. Noise gate — silencia el fondo entre palabras, sin esto el ruido residual sigue audible
+            # 3. Noise gate — silencia el fondo entre palabras
             f'agate=threshold={settings.clean_gate_threshold}:range=0.06:attack=10:release=200',
-            # 4. Compresor de voz — iguala dinamica y aplica makeup gain para subir el volumen
+            # 4. EQ parametrico de voz (estilo Audacity Filter Curve EQ)
+            # +2dB a 200Hz — cuerpo y calidez, evita voz delgada
+            f'equalizer=f=200:width_type=q:width=1.2:g={settings.clean_eq_warmth_gain}',
+            # -2dB a 350Hz — corta muddiness/muddiness que engruesa la voz
+            f'equalizer=f=350:width_type=q:width=1.5:g={settings.clean_eq_mud_cut}',
+            # +3dB a 2500Hz — presencia y claridad, la voz "corta" y se entiende mejor
+            f'equalizer=f=2500:width_type=q:width=1.0:g={settings.clean_eq_presence_gain}',
+            # -2dB a 5500Hz — doma la agudeza/harshness sin apagar el aire
+            f'equalizer=f=5500:width_type=q:width=1.0:g={settings.clean_eq_harsh_cut}',
+            # 5. Compresor de voz — iguala dinamica y sube volumen con makeup gain
             f'acompressor=threshold={settings.clean_comp_threshold}:ratio={settings.clean_comp_ratio}:attack=5:release=80:makeup={settings.clean_comp_makeup}',
-            # 5. Loudness normalization ITU-R BS.1770 — target profesional con true peak protegido
+            # 6. Loudness normalization ITU-R BS.1770 — target -12 LUFS, fuerte y protegido
             f'loudnorm=I={settings.clean_target_lufs}:TP={settings.clean_true_peak}:LRA={settings.clean_lra}',
         ]
         return ','.join(filters)

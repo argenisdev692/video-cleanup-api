@@ -47,10 +47,17 @@ class Settings(BaseSettings):
     clean_lowpass_hz: int = 12000
     clean_afftdn_nf: int = -25              # mas agresivo que -30, sin artefactos
     clean_gate_threshold: float = 0.015     # ~-36dB: silencia fondo entre palabras
+    # EQ parametrico de voz (4 bandas, estilo Audacity Filter Curve EQ)
+    clean_eq_warmth_gain: int = 2           # +2dB a 200Hz: cuerpo/calidez
+    clean_eq_mud_cut: int = -2              # -2dB a 350Hz: corta muddiness
+    clean_eq_presence_gain: int = 3         # +3dB a 2500Hz: presencia y claridad
+    clean_eq_harsh_cut: int = -2            # -2dB a 5500Hz: doma agudeza/harshness
+    # Compresor
     clean_comp_threshold: float = 0.125     # ~-18dB: donde empieza la compresion de voz
     clean_comp_ratio: float = 3.0           # 3:1 — estandar para voice-over
-    clean_comp_makeup: int = 4              # +4dB makeup gain post-compresion
-    clean_target_lufs: float = -14.0        # -14 LUFS (YouTube/streaming estandar)
+    clean_comp_makeup: int = 6              # +6dB makeup gain (era 4, mas volumen)
+    # Loudness
+    clean_target_lufs: float = -12.0        # -12 LUFS (mas fuerte, era -14)
     clean_true_peak: float = -1.5           # -1.5 dBTP — protege de clipping en decoders
     clean_lra: int = 7                      # rango de loudness: 7 LU para voz consistente
     render_video_codec: str = 'libx264'
