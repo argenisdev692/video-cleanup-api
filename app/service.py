@@ -388,7 +388,9 @@ class TutorialCleanupAnalysisService:
         return segments
 
     def _fallback_transcript_text(self, payload: AnalysisRequest) -> str:
-        chunks = [payload.title.strip(), payload.editorial_prompt.strip()]
+        chunks = [payload.title.strip()]
+        if payload.editorial_prompt:
+            chunks.append(payload.editorial_prompt.strip())
         return '\n'.join(chunk for chunk in chunks if chunk)
 
     def _build_candidates(

@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     audio_sample_rate: int = 16000
     clean_highpass_hz: int = 80
     clean_lowpass_hz: int = 12000
-    clean_afftdn_nf: int = -25
-    clean_target_lufs: float = -16.0
+    clean_afftdn_nf: int = -30
+    clean_target_lufs: float = -14.0
     clean_true_peak: float = -1.5
     clean_lra: int = 7
     render_video_codec: str = 'libx264'

@@ -37,7 +37,7 @@ curl -X POST http://localhost:8001/analysis/jobs/sync \
     "job_uuid": "job-123",
     "title": "Tutorial Limpio",
     "language": "es",
-    "target_duration_minutes": 10,
+    "target_duration_minutes": 60,
     "source": {
       "video_path": "/workspace/video.mp4",
       "script_pdf_path": "/workspace/script.pdf"
@@ -74,8 +74,8 @@ curl http://localhost:8001/download/job-123 \
   "job_uuid": "tutorial-001",
   "title": "Curso Introducción a Python",
   "language": "es",
-  "target_duration_minutes": 10,
-  "max_duration_minutes": 15,
+  "target_duration_minutes": 60,
+  "max_duration_minutes": 70,
   "source": {
     "video_path": "/workspace/tutorials/python-intro.mp4",
     "script_pdf_path": "/workspace/tutorials/python-intro.pdf"

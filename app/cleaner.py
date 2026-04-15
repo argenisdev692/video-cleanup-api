@@ -49,8 +49,10 @@ class VoiceCleanerService:
         filters = [
             f'highpass=f={settings.clean_highpass_hz}',
             f'lowpass=f={settings.clean_lowpass_hz}',
-            f'afftdn=nf={settings.clean_afftdn_nf}',
+            f'afftdn=nf={settings.clean_afftdn_nf}:tn=1',  # Reducción de ruido más agresiva
+            'dynaudnorm=f=150:g=15',  # Normalización dinámica para voice-over
             f'loudnorm=I={settings.clean_target_lufs}:TP={settings.clean_true_peak}:LRA={settings.clean_lra}',
+            'volume=3dB',  # Boost adicional de 3dB para voice-over
         ]
         return ','.join(filters)
 

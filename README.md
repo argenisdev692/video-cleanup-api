@@ -538,8 +538,8 @@ Content-Type: application/json
   "job_uuid": "550e8400-e29b-41d4-a716-446655440000",
   "title": "Introduction to Python Programming",
   "language": "es",
-  "target_duration_minutes": 10,
-  "max_duration_minutes": 15,
+  "target_duration_minutes": 60,
+  "max_duration_minutes": 70,
   "source": {
     "video_path": "/workspace/tutorials/python-intro.mp4",
     "script_pdf_path": "/workspace/scripts/python-intro.pdf"

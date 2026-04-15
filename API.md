@@ -43,8 +43,8 @@ interface AnalysisRequest {
   job_uuid: string;
   title: string;
   language?: string; // default: 'es'
-  target_duration_minutes?: number; // default: 10, min: 1, max: 240
-  max_duration_minutes?: number; // default: 15, min: 1, max: 240
+  target_duration_minutes?: number; // default: 60, min: 1, max: 240
+  max_duration_minutes?: number; // default: 70, min: 1, max: 240
   source: {
     video_path: string; // URL or local path to video
     script_pdf_path: string; // URL or local path to PDF script
@@ -57,7 +57,7 @@ interface AnalysisRequest {
     detect_self_corrections?: boolean; // default: true
     store_artifacts?: boolean; // default: true
   };
-  editorial_prompt: string; // Description of the video content
+  editorial_prompt?: string; // Description of the video content
   title_overlays?: Array<{
     video_path: string;
     start_seconds: number;
@@ -73,8 +73,8 @@ const requestBody = {
   job_uuid: 'unique-job-id-123',
   title: 'Tutorial Python para Principiantes',
   language: 'es',
-  target_duration_minutes: 10,
-  max_duration_minutes: 15,
+  target_duration_minutes: 60,
+  max_duration_minutes: 70,
   source: {
     video_path: 'https://your-r2-bucket.r2.cloudflarestorage.com/tutorial-video.mp4',
     script_pdf_path: 'https://your-r2-bucket.r2.cloudflarestorage.com/script.pdf',
@@ -87,7 +87,7 @@ const requestBody = {
     detect_self_corrections: true,
     store_artifacts: true,
   },
-  editorial_prompt: 'Tutorial introductorio sobre Python para principiantes, cubriendo variables, funciones y estructuras básicas.',
+  editorial_prompt: 'Tutorial introductorio sobre Python para principiantes, cubriendo variables, funciones y estructuras básicas.', // optional
   title_overlays: [
     {
       video_path: 'https://your-r2-bucket.r2.cloudflarestorage.com/overlay-1.mp4',

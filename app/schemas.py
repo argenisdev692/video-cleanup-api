@@ -30,11 +30,11 @@ class AnalysisRequest(BaseModel):
     job_uuid: str
     title: str = Field(min_length=1, max_length=255)
     language: str = 'es'
-    target_duration_minutes: int = Field(default=10, ge=1, le=240)
-    max_duration_minutes: int = Field(default=15, ge=1, le=240)
+    target_duration_minutes: int = Field(default=60, ge=1, le=240)
+    max_duration_minutes: int = Field(default=70, ge=1, le=240)
     source: SourcePayload
     rules: RulesPayload
-    editorial_prompt: str = Field(min_length=1)
+    editorial_prompt: str | None = None
     title_overlays: list[TitleOverlay] = Field(default_factory=list)
 
     @model_validator(mode='after')
