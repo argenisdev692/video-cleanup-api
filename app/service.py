@@ -43,7 +43,18 @@ class TutorialCleanupAnalysisService:
         self.remotion_manifest_builder = remotion_manifest_builder or RemotionManifestBuilder()
 
     def analyze(self, payload: AnalysisRequest) -> AnalysisResponse:
-        media_input = self.input_resolver.resolve(payload.source.video_path, kind='video')
+        video_paths = list(payload.source.video_paths) if payload.source.video_paths else []
+        if payload.source.video_path and payload.source.video_path not in video_paths:
+            video_paths.insert(0, payload.source.video_path)
+
+        if len(video_paths) > 1:
+            resolved_videos = [self.input_resolver.resolve(p, kind='video') for p in video_paths]
+            media_input = self.media_editing_service.concat_videos(
+                inputs=resolved_videos,
+                job_uuid=payload.job_uuid,
+            )
+        else:
+            media_input = self.input_resolver.resolve(video_paths[0], kind='video')
 
         script_input = None
         if payload.source.script_pdf_path:
@@ -179,6 +190,8 @@ class TutorialCleanupAnalysisService:
             'script_sections_detected': len(script_sections),
             'script_source': str(script_input.local_path) if script_input is not None else 'none',
             'media_source': str(media_input.local_path),
+            'media_source_count': len(video_paths),
+            'media_source_merged': media_input.source == 'concat',
             'internal_alignment_source': alignment_source,
             'internal_alignment_segments': len(transcript_segments),
             'internal_alignment_words': sum(len(segment.words) for segment in transcript_segments),

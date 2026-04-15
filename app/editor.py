@@ -11,6 +11,68 @@ from app.models import CleanedAudio, EditedMediaRender, ResolvedInput
 
 
 class MediaEditingService:
+    def concat_videos(
+        self,
+        *,
+        inputs: list[ResolvedInput],
+        job_uuid: str,
+    ) -> ResolvedInput:
+        if len(inputs) == 1:
+            return inputs[0]
+
+        ffmpeg_path = shutil.which(settings.ffmpeg_binary)
+        if ffmpeg_path is None:
+            raise RuntimeError('ffmpeg is required to concatenate videos')
+
+        output_dir = Path(settings.artifact_root) / job_uuid / 'concat'
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / 'merged.mp4'
+
+        # Build filter_complex concat
+        filter_parts: list[str] = []
+        concat_inputs: list[str] = []
+        for index, _ in enumerate(inputs):
+            filter_parts.append(
+                f'[{index}:v]scale=1920:1080:force_original_aspect_ratio=decrease,'
+                f'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v{index}]'
+            )
+            filter_parts.append(f'[{index}:a]aformat=sample_rates=44100:channel_layouts=stereo[a{index}]')
+            concat_inputs.append(f'[v{index}][a{index}]')
+
+        filter_parts.append(
+            ''.join(concat_inputs) + f'concat=n={len(inputs)}:v=1:a=1[outv][outa]'
+        )
+
+        command = [ffmpeg_path, '-y']
+        for resolved in inputs:
+            command.extend(['-i', str(resolved.local_path)])
+        command.extend([
+            '-filter_complex', ';'.join(filter_parts),
+            '-map', '[outv]',
+            '-map', '[outa]',
+            '-c:v', settings.render_video_codec,
+            '-preset', settings.render_preset,
+            '-crf', str(settings.render_crf),
+            '-maxrate', settings.render_video_maxrate,
+            '-bufsize', settings.render_video_bufsize,
+            '-pix_fmt', 'yuv420p',
+            '-c:a', settings.render_audio_codec,
+            '-b:a', settings.render_audio_bitrate,
+            '-movflags', '+faststart',
+            str(output_path),
+        ])
+
+        completed = subprocess.run(command, capture_output=True, text=True)
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or 'ffmpeg failed to concatenate videos')
+
+        return ResolvedInput(
+            kind='video',
+            reference=str(output_path),
+            local_path=output_path,
+            source='concat',
+        )
+
     def render_clean_master(
         self,
         *,
