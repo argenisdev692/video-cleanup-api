@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     render_audio_codec: str = 'aac'
     render_crf: int = 18
     render_preset: str = 'medium'
+    render_video_maxrate: str = '8M'      # bitrate maximo para 1080p HD
+    render_video_bufsize: str = '16M'     # buffer = 2x maxrate
+    render_audio_channels: int = 2        # stereo — el input es mono, se upmixea aqui
+    render_audio_bitrate: str = '192k'    # 192kbps AAC — estandar para video HD
+    render_audio_sample_rate: int = 48000 # 48kHz — estandar para video/broadcast
     render_min_segment_seconds: float = 0.25
     remotion_composition_id: str = 'TutorialCapcutClean'
     remotion_fps: int = 30
