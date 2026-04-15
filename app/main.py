@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 
 from app.artifacts import ArtifactFileLocator
 from app.config import settings
@@ -14,6 +14,11 @@ from app.service import TutorialCleanupAnalysisService
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 analysis_service = TutorialCleanupAnalysisService()
 artifact_locator = ArtifactFileLocator()
+
+
+@app.get('/')
+def root() -> RedirectResponse:
+    return RedirectResponse(url='/docs')
 
 
 def require_api_token(authorization: str | None = Header(default=None)) -> None:
