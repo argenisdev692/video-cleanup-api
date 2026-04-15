@@ -300,7 +300,7 @@ class MediaEditingService:
             )
             filter_parts.append(scale_filter)
             overlay_filter = (
-                f"[base]overlay={start}:enable='between(t,{start},{start+duration})'[tmp{idx}]"
+                f"[base][ov{idx}]overlay=0:0:enable='between(t,{start},{start+duration})'[tmp{idx}]"
             )
             filter_parts.append(overlay_filter)
             filter_parts.append(f'[tmp{idx}]copy[base]')
