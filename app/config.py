@@ -56,8 +56,8 @@ class Settings(BaseSettings):
     render_min_segment_seconds: float = 0.25
     remotion_composition_id: str = 'TutorialCapcutClean'
     remotion_fps: int = 30
-    remotion_width: int = 1080
-    remotion_height: int = 1920
+    remotion_width: int = 1920
+    remotion_height: int = 1080
     vad_use_onnx: bool = False
     vad_threshold: float = 0.5
     vad_min_speech_duration_ms: int = 200
