@@ -157,8 +157,13 @@ class MediaEditingService:
                 filter_parts.append(f'[1:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{index}]')
                 concat_inputs.append(f'[v{index}][a{index}]')
 
+            # aformat must live inside filter_complex — using -af alongside
+            # -filter_complex on the same output stream is not allowed by ffmpeg.
             filter_parts.append(
-                ''.join(concat_inputs) + f'concat=n={len(keep_ranges)}:v=1:a=1[outv][outa]'
+                ''.join(concat_inputs) + f'concat=n={len(keep_ranges)}:v=1:a=1[outv][outa_concat]'
+            )
+            filter_parts.append(
+                f'[outa_concat]aformat=sample_rates={settings.render_audio_sample_rate}:channel_layouts=stereo[outa]'
             )
 
             command = [
@@ -188,8 +193,6 @@ class MediaEditingService:
                 'yuv420p',
                 '-c:a',
                 settings.render_audio_codec,
-                '-af',
-                f'aformat=sample_rates={settings.render_audio_sample_rate}:channel_layouts=stereo',
                 '-ac',
                 str(settings.render_audio_channels),
                 '-b:a',
