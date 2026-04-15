@@ -44,9 +44,12 @@ class TutorialCleanupAnalysisService:
 
     def analyze(self, payload: AnalysisRequest) -> AnalysisResponse:
         media_input = self.input_resolver.resolve(payload.source.video_path, kind='video')
-        script_input = self.input_resolver.resolve(payload.source.script_pdf_path, kind='script_pdf')
 
-        script_text = self._load_script_text(script_input.local_path)
+        script_input = None
+        if payload.source.script_pdf_path:
+            script_input = self.input_resolver.resolve(payload.source.script_pdf_path, kind='script_pdf')
+
+        script_text = self._load_script_text(script_input.local_path) if script_input is not None else ''
         script_sections = self._extract_script_sections(script_text, payload.title)
         script_tokens = set(self._tokenize(script_text))
         prepared_audio = self.audio_preparation_service.prepare(media_input, job_uuid=payload.job_uuid)
@@ -174,7 +177,7 @@ class TutorialCleanupAnalysisService:
         diagnostics: dict[str, Any] = {
             'script_available': bool(script_text.strip()),
             'script_sections_detected': len(script_sections),
-            'script_source': str(script_input.local_path),
+            'script_source': str(script_input.local_path) if script_input is not None else 'none',
             'media_source': str(media_input.local_path),
             'internal_alignment_source': alignment_source,
             'internal_alignment_segments': len(transcript_segments),

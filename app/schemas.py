@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class SourcePayload(BaseModel):
     video_path: str
-    script_pdf_path: str
+    script_pdf_path: str | None = None
 
 
 class TitleOverlay(BaseModel):
