@@ -221,7 +221,7 @@ class MediaEditingService:
             '-c:a', settings.render_audio_codec,
             '-shortest',
             str(output_path),
-        ]
+        ])
 
         completed = subprocess.run(command, capture_output=True, text=True)
         if completed.returncode != 0:
