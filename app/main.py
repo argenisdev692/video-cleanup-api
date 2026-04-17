@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.artifacts import ArtifactFileLocator
 from app.config import settings
@@ -12,20 +11,7 @@ from app.schemas import AnalysisRequest, AnalysisResponse, HealthResponse
 from app.service import TutorialCleanupAnalysisService
 
 
-class MaxBodySizeMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):
-        # Increase max body size to 200MB
-        import sys
-        if 'content-length' in request.headers:
-            content_length = int(request.headers['content-length'])
-            if content_length > 200 * 1024 * 1024:  # 200MB
-                from fastapi import HTTPException
-                raise HTTPException(status_code=413, detail='Payload too large')
-        return await call_next(request)
-
-
 app = FastAPI(title=settings.app_name, version=settings.app_version)
-app.add_middleware(MaxBodySizeMiddleware)
 analysis_service = TutorialCleanupAnalysisService()
 artifact_locator = ArtifactFileLocator()
 
