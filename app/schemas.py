@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 class SourcePayload(BaseModel):
     video_path: str | None = None
     video_paths: list[str] = Field(default_factory=list)
+    title_video_paths: list[str] = Field(default_factory=list)
     script_pdf_path: str | None = None
 
     @model_validator(mode='after')

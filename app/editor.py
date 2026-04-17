@@ -264,6 +264,23 @@ class MediaEditingService:
 
         return keep_ranges
 
+    def probe_video_duration(self, path: Path) -> float:
+        ffprobe_path = shutil.which('ffprobe') or shutil.which(
+            settings.ffmpeg_binary.replace('ffmpeg', 'ffprobe')
+        )
+        if ffprobe_path is None:
+            return 0.0
+        result = subprocess.run(
+            [ffprobe_path, '-v', 'quiet', '-show_entries', 'format=duration', '-of', 'csv=p=0', str(path)],
+            capture_output=True,
+            text=True,
+        )
+        try:
+            value = float(result.stdout.strip())
+            return value if value > 0 else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
     def apply_title_overlays(
         self,
         *,

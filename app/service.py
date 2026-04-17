@@ -47,14 +47,17 @@ class TutorialCleanupAnalysisService:
         if payload.source.video_path and payload.source.video_path not in video_paths:
             video_paths.insert(0, payload.source.video_path)
 
+        title_paths_set = {p.strip() for p in payload.source.title_video_paths}
         if len(video_paths) > 1:
             resolved_videos = [self.input_resolver.resolve(p, kind='video') for p in video_paths]
             media_input = self.media_editing_service.concat_videos(
                 inputs=resolved_videos,
                 job_uuid=payload.job_uuid,
             )
+            protected_ranges = self._build_protected_ranges(video_paths, resolved_videos, title_paths_set)
         else:
             media_input = self.input_resolver.resolve(video_paths[0], kind='video')
+            protected_ranges: list[tuple[float, float]] = []
 
         script_input = None
         if payload.source.script_pdf_path:
@@ -101,6 +104,7 @@ class TutorialCleanupAnalysisService:
             transcript_segments=transcript_segments,
             silence_regions=silence_regions,
             script_tokens=script_tokens,
+            protected_ranges=protected_ranges,
         )
         selected_candidates = self._select_candidates(payload, candidates, transcript_segments)
 
@@ -416,6 +420,7 @@ class TutorialCleanupAnalysisService:
         transcript_segments: list[TranscriptSegment],
         silence_regions: list[SpeechRegion],
         script_tokens: set[str],
+        protected_ranges: list[tuple[float, float]] | None = None,
     ) -> list[EditCandidate]:
         candidates: list[EditCandidate] = []
         fillers = tuple(term.casefold() for term in settings.filler_terms)
@@ -428,16 +433,17 @@ class TutorialCleanupAnalysisService:
             duration = max(0.0, segment.end_seconds - segment.start_seconds)
 
             if pause_keyword and pause_keyword in normalized:
-                start = previous_segment.start_seconds if previous_segment else max(0.0, segment.start_seconds - min(duration, 2.0))
+                start = segment.start_seconds
+                end = self._find_pause_end_seconds(segment, pause_keyword) or segment.end_seconds
                 candidates.append(
                     EditCandidate(
                         start_seconds=start,
-                        end_seconds=segment.end_seconds,
+                        end_seconds=end,
                         action='cut',
                         reason='pause_keyword',
                         observation='Se detectó la palabra de corte explícita.',
                         confidence=0.99,
-                        estimated_saved_seconds=max(1.0, segment.end_seconds - start),
+                        estimated_saved_seconds=max(1.0, end - start),
                         priority=100,
                     )
                 )
@@ -506,7 +512,13 @@ class TutorialCleanupAnalysisService:
 
             previous_segment = segment
 
+        guarded = protected_ranges or []
         for silence_region in silence_regions:
+            if any(
+                silence_region.start_seconds < end and silence_region.end_seconds > start
+                for start, end in guarded
+            ):
+                continue
             candidates.append(
                 EditCandidate(
                     start_seconds=silence_region.start_seconds,
@@ -837,6 +849,39 @@ class TutorialCleanupAnalysisService:
             return float(clean)
         except (TypeError, ValueError):
             return 0.0
+
+    def _build_protected_ranges(
+        self,
+        video_paths: list[str],
+        resolved_videos: list,
+        title_paths_set: set[str],
+    ) -> list[tuple[float, float]]:
+        protected: list[tuple[float, float]] = []
+        cursor = 0.0
+        for path, resolved in zip(video_paths, resolved_videos):
+            duration = self.media_editing_service.probe_video_duration(resolved.local_path)
+            if path.strip() in title_paths_set:
+                protected.append((cursor, cursor + duration))
+            cursor += duration
+        return protected
+
+    def _find_pause_end_seconds(self, segment: TranscriptSegment, pause_keyword: str) -> float | None:
+        if not segment.words:
+            return None
+        keyword_words = pause_keyword.split()
+        clean = lambda t: t.strip(" .,;:!?¡¿\"'()[]{}").casefold()
+        for i, word in enumerate(segment.words):
+            if clean(word.text) != keyword_words[0]:
+                continue
+            if len(keyword_words) == 1:
+                return word.end_seconds
+            match = all(
+                i + j < len(segment.words) and clean(segment.words[i + j].text) == kw
+                for j, kw in enumerate(keyword_words[1:], 1)
+            )
+            if match:
+                return segment.words[i + len(keyword_words) - 1].end_seconds
+        return None
 
     def _format_timestamp(self, seconds: float) -> str:
         total_milliseconds = int(round(max(0.0, seconds) * 1000))
