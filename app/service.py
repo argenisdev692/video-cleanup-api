@@ -433,17 +433,18 @@ class TutorialCleanupAnalysisService:
             duration = max(0.0, segment.end_seconds - segment.start_seconds)
 
             if pause_keyword and pause_keyword in normalized:
-                start = segment.start_seconds
-                end = self._find_pause_end_seconds(segment, pause_keyword) or segment.end_seconds
+                pause_end = self._find_pause_end_seconds(segment, pause_keyword) or segment.end_seconds
+                # Cut from the START of the previous segment (the mistaken take) through the pause marker
+                cut_start = previous_segment.start_seconds if previous_segment is not None else segment.start_seconds
                 candidates.append(
                     EditCandidate(
-                        start_seconds=start,
-                        end_seconds=end,
+                        start_seconds=cut_start,
+                        end_seconds=pause_end,
                         action='cut',
                         reason='pause_keyword',
-                        observation='Se detectó la palabra de corte explícita.',
+                        observation='Corte por PAUSA: elimina la toma errónea anterior y el marcador de pausa.',
                         confidence=0.99,
-                        estimated_saved_seconds=max(1.0, end - start),
+                        estimated_saved_seconds=max(1.0, pause_end - cut_start),
                         priority=100,
                     )
                 )
@@ -608,21 +609,33 @@ class TutorialCleanupAnalysisService:
         if not candidates:
             return []
 
+        always_apply_reasons = {'pause_keyword', 'fillers', 'repeated_words', 'self_correction'}
         if desired_target <= 0 and minimum_required <= 0:
             critical_candidates = [
                 candidate
                 for candidate in sorted(candidates, key=lambda item: (-item.priority, -item.confidence, item.start_seconds))
-                if candidate.priority >= 85 or candidate.action == 'cut'
+                if candidate.priority >= 85 or candidate.action == 'cut' or candidate.reason in always_apply_reasons
             ]
-            return sorted(critical_candidates[:5], key=lambda item: item.start_seconds)
+            return sorted(critical_candidates[:settings.max_edit_plan_items], key=lambda item: item.start_seconds)
 
         selected: list[EditCandidate] = []
         accumulated = 0.0
         used_ranges: list[tuple[float, float]] = []
 
+        # Always include explicit edit rules first (pause markers, fillers, repeated words)
+        mandatory = [c for c in candidates if c.reason in always_apply_reasons]
+        for candidate in sorted(mandatory, key=lambda item: item.start_seconds):
+            if self._overlaps_existing(candidate, used_ranges):
+                continue
+            selected.append(candidate)
+            used_ranges.append((candidate.start_seconds, candidate.end_seconds))
+            accumulated += candidate.estimated_saved_seconds
+
         for candidate in sorted(candidates, key=lambda item: (-item.priority, -item.confidence, item.start_seconds)):
             if len(selected) >= settings.max_edit_plan_items:
                 break
+            if candidate.reason in always_apply_reasons:
+                continue  # already added above
             if self._overlaps_existing(candidate, used_ranges):
                 continue
             selected.append(candidate)
