@@ -52,7 +52,7 @@ class VoiceCleanerService:
         comp_makeup = 10 ** (settings.clean_comp_makeup_db / 20)
 
         click_filter = (
-            f'adeclick=w=55:o=75:a={settings.clean_adeclick_amplitude}:m=2'
+            f'adeclick=w=55:o=75:a={settings.clean_adeclick_amplitude}'
         )
         highpass_100 = f'highpass=f={settings.clean_highpass_hz}:poles=4'
 
