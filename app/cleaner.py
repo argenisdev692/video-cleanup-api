@@ -46,27 +46,52 @@ class VoiceCleanerService:
         )
 
     def _build_filter_chain(self) -> str:
+        gate_threshold = 10 ** (settings.clean_gate_threshold_db / 20)
+        gate_range = 10 ** (settings.clean_gate_range_db / 20)
+        comp_threshold = 10 ** (settings.clean_comp_threshold_db / 20)
+        comp_makeup = 10 ** (settings.clean_comp_makeup_db / 20)
+
+        click_filter = (
+            f'adeclick=w=55:o=75:a={settings.clean_adeclick_amplitude}:m=2'
+        )
+        highpass_100 = f'highpass=f={settings.clean_highpass_hz}:poles=4'
+
         filters = [
-            # 1. Corta ruido estructural: zumbidos bajos y hiss alto
-            f'highpass=f={settings.clean_highpass_hz}',
-            f'lowpass=f={settings.clean_lowpass_hz}',
-            # 2. Reduccion de ruido FFT — elimina ruido de fondo constante (ventilador, AC, hiss)
-            f'afftdn=nf={settings.clean_afftdn_nf}:tn=1',
-            # 3. Noise gate — silencia el fondo entre palabras
-            f'agate=threshold={settings.clean_gate_threshold}:range=0.06:attack=10:release=200',
-            # 4. EQ parametrico de voz (estilo Audacity Filter Curve EQ)
-            # +2dB a 200Hz — cuerpo y calidez, evita voz delgada
-            f'equalizer=f=200:width_type=q:width=1.2:g={settings.clean_eq_warmth_gain}',
-            # -2dB a 350Hz — corta muddiness/muddiness que engruesa la voz
-            f'equalizer=f=350:width_type=q:width=1.5:g={settings.clean_eq_mud_cut}',
-            # +3dB a 2500Hz — presencia y claridad, la voz "corta" y se entiende mejor
-            f'equalizer=f=2500:width_type=q:width=1.0:g={settings.clean_eq_presence_gain}',
-            # -2dB a 5500Hz — doma la agudeza/harshness sin apagar el aire
-            f'equalizer=f=5500:width_type=q:width=1.0:g={settings.clean_eq_harsh_cut}',
-            # 5. Compresor de voz — iguala dinamica y sube volumen con makeup gain
-            f'acompressor=threshold={settings.clean_comp_threshold}:ratio={settings.clean_comp_ratio}:attack=5:release=80:makeup={settings.clean_comp_makeup}',
-            # 6. Loudness normalization ITU-R BS.1770 — target -12 LUFS, fuerte y protegido
+            # 1. NOISE REDUCTION — afftdn 12dB, track noise enabled
+            f'afftdn=nr={settings.clean_nr_amount}:nf={settings.clean_afftdn_nf}:tn=1',
+            # 2. CLICK REMOVAL — Threshold 200 ≈ a=2, Max Spike Width 20 samples ≈ m=2
+            click_filter,
+            # 3. HIGH-PASS FILTER — 100Hz, 24dB/octave (4 poles)
+            highpass_100,
+            # 4. FILTER CURVE EQ — gentle roll-off from 60Hz toward 100Hz, rest flat
+            'highpass=f=60:poles=2',
+            # 5. NOISE GATE — -40dB threshold, -100dB reduction, attack 10ms, hold 25ms, decay 250ms
+            (
+                f'agate=threshold={gate_threshold:.5f}'
+                f':range={gate_range:.8f}'
+                f':attack={settings.clean_gate_attack}'
+                f':hold={settings.clean_gate_hold}'
+                f':release={settings.clean_gate_release}'
+            ),
+            # 6. COMPRESSOR — -12dB threshold, ratio 3.1, knee 5dB, attack 0.2ms, release 100ms
+            (
+                f'acompressor=threshold={comp_threshold:.4f}'
+                f':ratio={settings.clean_comp_ratio}'
+                f':knee={settings.clean_comp_knee_db}'
+                f':attack={settings.clean_comp_attack_ms}'
+                f':release={settings.clean_comp_release_ms}'
+                f':makeup={comp_makeup:.4f}'
+            ),
+            # 7. NORMALIZE — DC removal via ultra-low HP, then loudnorm TP=-1.0 dBFS
+            'highpass=f=5:poles=1',
             f'loudnorm=I={settings.clean_target_lufs}:TP={settings.clean_true_peak}:LRA={settings.clean_lra}',
+            # 8. AMPLIFY — +6.144dB with hard limiter at 0 dBFS, no clipping
+            f'volume={settings.clean_amplify_db}dB',
+            'alimiter=level_in=1:level_out=1:limit=1.0:attack=5:release=50:asc=1',
+            # 9. KEYBOARD CLICK REMOVAL — second adeclick pass for short transients
+            click_filter,
+            # 10. ANTI-KEYBOARD HIGH-PASS — 100Hz, 24dB/oct to eliminate mechanical thump
+            highpass_100,
         ]
         return ','.join(filters)
 

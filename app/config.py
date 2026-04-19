@@ -43,23 +43,32 @@ class Settings(BaseSettings):
     max_edit_plan_items: int = 30
     ffmpeg_binary: str = 'ffmpeg'
     audio_sample_rate: int = 16000
-    clean_highpass_hz: int = 80
-    clean_lowpass_hz: int = 12000
-    clean_afftdn_nf: int = -25              # mas agresivo que -30, sin artefactos
-    clean_gate_threshold: float = 0.015     # ~-36dB: silencia fondo entre palabras
-    # EQ parametrico de voz (4 bandas, estilo Audacity Filter Curve EQ)
-    clean_eq_warmth_gain: int = 2           # +2dB a 200Hz: cuerpo/calidez
-    clean_eq_mud_cut: int = -2              # -2dB a 350Hz: corta muddiness
-    clean_eq_presence_gain: int = 3         # +3dB a 2500Hz: presencia y claridad
-    clean_eq_harsh_cut: int = -2            # -2dB a 5500Hz: doma agudeza/harshness
-    # Compresor
-    clean_comp_threshold: float = 0.125     # ~-18dB: donde empieza la compresion de voz
-    clean_comp_ratio: float = 3.0           # 3:1 — estandar para voice-over
-    clean_comp_makeup: int = 6              # +6dB makeup gain (era 4, mas volumen)
-    # Loudness
-    clean_target_lufs: float = -12.0        # -12 LUFS (mas fuerte, era -14)
-    clean_true_peak: float = -1.5           # -1.5 dBTP — protege de clipping en decoders
-    clean_lra: int = 7                      # rango de loudness: 7 LU para voz consistente
+    # Step 1 — Noise Reduction
+    clean_nr_amount: int = 12               # afftdn nr: reduccion de ruido en dB
+    clean_afftdn_nf: int = -25              # afftdn nf: noise floor en dB
+    # Step 2 & 9 — Click Removal (Audacity Threshold 200, Max Spike Width 20)
+    clean_adeclick_amplitude: float = 2.0   # adeclick a: menor = mas sensible
+    # Step 3 & 10 — High-Pass Filter 100Hz 24dB/oct
+    clean_highpass_hz: int = 100            # frecuencia de corte en Hz
+    # Step 5 — Noise Gate
+    clean_gate_threshold_db: float = -40.0  # umbral del gate en dB
+    clean_gate_range_db: float = -100.0     # reduccion de nivel en dB
+    clean_gate_attack: float = 10.0         # attack en ms
+    clean_gate_hold: float = 25.0           # hold en ms
+    clean_gate_release: float = 250.0       # decay/release en ms
+    # Step 6 — Compressor
+    clean_comp_threshold_db: float = -12.0  # umbral del compresor en dB
+    clean_comp_ratio: float = 3.1           # ratio de compresion
+    clean_comp_knee_db: float = 5.0         # knee width en dB
+    clean_comp_attack_ms: float = 0.2       # attack en ms
+    clean_comp_release_ms: float = 100.0    # release en ms
+    clean_comp_makeup_db: float = 0.0       # makeup gain en dB (0 = sin ganancia extra)
+    # Step 7 — Normalize (loudnorm con true peak -1.0 dBFS)
+    clean_target_lufs: float = -14.0        # target de loudness integrado
+    clean_true_peak: float = -1.0           # true peak maximo en dBFS
+    clean_lra: int = 7                      # rango de loudness LU
+    # Step 8 — Amplify
+    clean_amplify_db: float = 6.144         # amplificacion final en dB
     render_video_codec: str = 'libx264'
     render_audio_codec: str = 'aac'
     render_crf: int = 18
