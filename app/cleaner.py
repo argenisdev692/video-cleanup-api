@@ -54,7 +54,8 @@ class VoiceCleanerService:
         click_filter = (
             f'adeclick=w=55:o=75:a={settings.clean_adeclick_amplitude}'
         )
-        highpass_100 = f'highpass=f={settings.clean_highpass_hz}:poles=4'
+        # 24dB/oct = two cascaded 2-pole stages (FFmpeg caps poles at 2)
+        highpass_100 = f'highpass=f={settings.clean_highpass_hz}:poles=2,highpass=f={settings.clean_highpass_hz}:poles=2'
 
         filters = [
             # 1. NOISE REDUCTION — afftdn 12dB, track noise enabled
