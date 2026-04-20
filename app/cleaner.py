@@ -62,10 +62,10 @@ class VoiceCleanerService:
             f'afftdn=nr={settings.clean_nr_amount}:nf={settings.clean_afftdn_nf}:tn=1',
             # 2. CLICK REMOVAL — Threshold 200 ≈ a=2, Max Spike Width 20 samples ≈ m=2
             click_filter,
-            # 3. HIGH-PASS FILTER — 100Hz, 24dB/octave (4 poles)
+            # 3. HIGH-PASS FILTER — 120Hz, 24dB/octave (corta rumble de motor/carro)
             highpass_100,
-            # 4. FILTER CURVE EQ — gentle roll-off from 60Hz toward 100Hz, rest flat
-            'highpass=f=60:poles=2',
+            # 4. FILTER CURVE EQ — gentle roll-off desde 80Hz hacia 120Hz, resto plano
+            'highpass=f=80:poles=2',
             # 5. NOISE GATE — -40dB threshold, -100dB reduction, attack 10ms, hold 25ms, decay 250ms
             (
                 f'agate=threshold={gate_threshold:.5f}'
@@ -82,6 +82,8 @@ class VoiceCleanerService:
                 f':release={settings.clean_comp_release_ms}'
                 f':makeup={comp_makeup:.4f}'
             ),
+            # 6b. HARSH CUT — -2dB a 5500Hz para domar agudeza/voz brillante
+            f'equalizer=f=5500:width_type=q:width=1.0:g={settings.clean_eq_harsh_cut}',
             # 7. NORMALIZE — DC removal via ultra-low HP, then loudnorm TP=-1.0 dBFS
             'highpass=f=5:poles=1',
             f'loudnorm=I={settings.clean_target_lufs}:TP={settings.clean_true_peak}:LRA={settings.clean_lra}',

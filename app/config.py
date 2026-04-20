@@ -48,8 +48,10 @@ class Settings(BaseSettings):
     clean_afftdn_nf: int = -25              # afftdn nf: noise floor en dB
     # Step 2 & 9 — Click Removal (Audacity Threshold 200, Max Spike Width 20)
     clean_adeclick_amplitude: float = 2.0   # adeclick a: menor = mas sensible
-    # Step 3 & 10 — High-Pass Filter 100Hz 24dB/oct
-    clean_highpass_hz: int = 100            # frecuencia de corte en Hz
+    # Step 3 & 10 — High-Pass Filter 120Hz 24dB/oct (corta rumble carro/motor)
+    clean_highpass_hz: int = 120            # frecuencia de corte en Hz
+    # Step 6b — Harsh cut para voz aguda
+    clean_eq_harsh_cut: int = -2            # dB a 5500Hz: doma agudeza/harshness
     # Step 5 — Noise Gate
     clean_gate_threshold_db: float = -40.0  # umbral del gate en dB
     clean_gate_range_db: float = -100.0     # reduccion de nivel en dB
