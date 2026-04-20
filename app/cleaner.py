@@ -71,7 +71,6 @@ class VoiceCleanerService:
                 f'agate=threshold={gate_threshold:.5f}'
                 f':range={gate_range:.8f}'
                 f':attack={settings.clean_gate_attack}'
-                f':hold={settings.clean_gate_hold}'
                 f':release={settings.clean_gate_release}'
             ),
             # 6. COMPRESSOR — -12dB threshold, ratio 3.1, knee 5dB, attack 0.2ms, release 100ms
