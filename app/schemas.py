@@ -129,3 +129,17 @@ class ExportResponse(BaseModel):
     duration_seconds: float
     silence_cuts: int
     diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
+class MergeExportRequest(BaseModel):
+    job_uuid: str
+    video_paths: list[str] = Field(min_length=1)
+
+
+class MergeExportResponse(BaseModel):
+    job_uuid: str
+    status: str = 'completed'
+    output_path: str
+    storage_url: str | None = None
+    duration_seconds: float
+    diagnostics: dict[str, Any] = Field(default_factory=dict)

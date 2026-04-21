@@ -7,14 +7,15 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from app.artifacts import ArtifactFileLocator
 from app.config import settings
-from app.export_service import VideoExportService
-from app.schemas import AnalysisRequest, AnalysisResponse, ExportRequest, ExportResponse, HealthResponse
+from app.export_service import VideoExportService, VideoMergeExportService
+from app.schemas import AnalysisRequest, AnalysisResponse, ExportRequest, ExportResponse, HealthResponse, MergeExportRequest, MergeExportResponse
 from app.service import TutorialCleanupAnalysisService
 
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 analysis_service = TutorialCleanupAnalysisService()
 export_service = VideoExportService()
+merge_export_service = VideoMergeExportService()
 artifact_locator = ArtifactFileLocator()
 
 
@@ -92,6 +93,30 @@ def video_export(
 ) -> ExportResponse:
     try:
         return export_service.export(payload)
+    except HTTPException:
+        raise
+    except FileNotFoundError as exception:
+        raise HTTPException(status_code=422, detail=str(exception)) from exception
+    except RuntimeError as exception:
+        raise HTTPException(status_code=422, detail=str(exception)) from exception
+    except Exception as exception:
+        raise HTTPException(status_code=500, detail=str(exception)) from exception
+
+
+@app.post(
+    '/video-export-merge',
+    response_model=MergeExportResponse,
+    responses={
+        422: {'description': 'Invalid or missing input files'},
+        500: {'description': 'Merge export processing error'},
+    },
+)
+def video_export_merge(
+    payload: MergeExportRequest,
+    _: None = Depends(require_api_token),
+) -> MergeExportResponse:
+    try:
+        return merge_export_service.export(payload)
     except HTTPException:
         raise
     except FileNotFoundError as exception:

@@ -9,7 +9,7 @@ from app.config import settings
 from app.media import AudioPreparationService
 from app.models import ResolvedInput
 from app.resolver import InputResolver
-from app.schemas import ExportRequest, ExportResponse
+from app.schemas import ExportRequest, ExportResponse, MergeExportRequest, MergeExportResponse
 from app.storage import ArtifactWriter
 from app.vad import VoiceActivityDetectionService
 
@@ -240,3 +240,134 @@ class VideoExportService:
         if duration_seconds - cursor >= settings.render_min_segment_seconds:
             keep.append((cursor, duration_seconds))
         return keep
+
+
+class VideoMergeExportService:
+    def __init__(
+        self,
+        input_resolver: InputResolver | None = None,
+        artifact_writer: ArtifactWriter | None = None,
+    ) -> None:
+        self.input_resolver = input_resolver or InputResolver()
+        self.artifact_writer = artifact_writer or ArtifactWriter()
+
+    def export(self, request: MergeExportRequest) -> MergeExportResponse:
+        resolved = [self.input_resolver.resolve(p, kind='video') for p in request.video_paths]
+
+        output_path = self._merge_and_render(resolved, job_uuid=request.job_uuid)
+        duration_seconds = round(self._get_duration(output_path), 3)
+
+        storage_url: str | None = None
+        r2_error: str | None = None
+        if all([settings.r2_endpoint, settings.r2_access_key_id, settings.r2_secret_access_key, settings.r2_bucket_name]):
+            try:
+                remote_key = f'video-exports/{request.job_uuid}/merge-export.mp4'
+                storage_url = self.artifact_writer.upload_to_r2(
+                    local_path=output_path,
+                    remote_key=remote_key,
+                )
+            except Exception as exc:
+                r2_error = str(exc)
+
+        diagnostics: dict[str, Any] = {
+            'source_count': len(request.video_paths),
+            'merged': len(resolved) > 1,
+            'output_path': str(output_path),
+        }
+        if r2_error:
+            diagnostics['r2_upload_error'] = r2_error
+
+        return MergeExportResponse(
+            job_uuid=request.job_uuid,
+            status='completed',
+            output_path=str(output_path),
+            storage_url=storage_url,
+            duration_seconds=duration_seconds,
+            diagnostics=diagnostics,
+        )
+
+    def _merge_and_render(self, inputs: list[ResolvedInput], *, job_uuid: str) -> Path:
+        ffmpeg_path = shutil.which(settings.ffmpeg_binary)
+        if ffmpeg_path is None:
+            raise RuntimeError('ffmpeg is required to merge and render videos')
+
+        output_dir = Path(settings.artifact_root) / job_uuid / 'merge-export'
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / 'merge-export.mp4'
+
+        encode_flags = [
+            '-c:v', 'libx264',
+            '-preset', settings.render_preset,
+            '-b:v', settings.export_video_bitrate,
+            '-maxrate', settings.export_video_maxrate,
+            '-bufsize', settings.export_video_bufsize,
+            '-r', '30',
+            '-pix_fmt', 'yuv420p',
+            '-aspect', '16:9',
+            '-c:a', 'aac',
+            '-b:a', settings.export_audio_bitrate,
+            '-ar', str(settings.export_audio_sample_rate),
+            '-ac', str(settings.export_audio_channels),
+            '-movflags', '+faststart',
+        ]
+
+        if len(inputs) == 1:
+            command = [
+                ffmpeg_path, '-y',
+                '-i', str(inputs[0].local_path),
+                '-vf', (
+                    'scale=1920:1080:force_original_aspect_ratio=decrease,'
+                    'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30'
+                ),
+                '-af', f'aformat=sample_rates={settings.export_audio_sample_rate}:channel_layouts=stereo',
+            ] + encode_flags + [str(output_path)]
+        else:
+            filter_parts: list[str] = []
+            concat_inputs: list[str] = []
+            for i, _ in enumerate(inputs):
+                filter_parts.append(
+                    f'[{i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,'
+                    f'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[v{i}]'
+                )
+                filter_parts.append(
+                    f'[{i}:a]aformat=sample_rates={settings.export_audio_sample_rate}'
+                    f':channel_layouts=stereo[a{i}]'
+                )
+                concat_inputs.append(f'[v{i}][a{i}]')
+            filter_parts.append(
+                ''.join(concat_inputs) + f'concat=n={len(inputs)}:v=1:a=1[outv][outa]'
+            )
+
+            command = [ffmpeg_path, '-y']
+            for r in inputs:
+                command.extend(['-i', str(r.local_path)])
+            command.extend([
+                '-filter_complex', ';'.join(filter_parts),
+                '-map', '[outv]',
+                '-map', '[outa]',
+            ] + encode_flags + [str(output_path)])
+
+        completed = subprocess.run(command, capture_output=True, text=True)
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or 'ffmpeg failed to merge and render videos')
+
+        return output_path
+
+    def _get_duration(self, path: Path) -> float:
+        ffprobe_path = shutil.which('ffprobe')
+        if ffprobe_path is None:
+            return 0.0
+        result = subprocess.run(
+            [
+                ffprobe_path, '-v', 'quiet',
+                '-show_entries', 'format=duration',
+                '-of', 'default=noprint_wrappers=1:nokey=1',
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+        )
+        try:
+            return float(result.stdout.strip())
+        except ValueError:
+            return 0.0
