@@ -7,12 +7,14 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from app.artifacts import ArtifactFileLocator
 from app.config import settings
-from app.schemas import AnalysisRequest, AnalysisResponse, HealthResponse
+from app.export_service import VideoExportService
+from app.schemas import AnalysisRequest, AnalysisResponse, ExportRequest, ExportResponse, HealthResponse
 from app.service import TutorialCleanupAnalysisService
 
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 analysis_service = TutorialCleanupAnalysisService()
+export_service = VideoExportService()
 artifact_locator = ArtifactFileLocator()
 
 
@@ -66,6 +68,30 @@ def analyze_sync(
 ) -> AnalysisResponse:
     try:
         return analysis_service.analyze(payload)
+    except HTTPException:
+        raise
+    except FileNotFoundError as exception:
+        raise HTTPException(status_code=422, detail=str(exception)) from exception
+    except RuntimeError as exception:
+        raise HTTPException(status_code=422, detail=str(exception)) from exception
+    except Exception as exception:
+        raise HTTPException(status_code=500, detail=str(exception)) from exception
+
+
+@app.post(
+    '/video-export',
+    response_model=ExportResponse,
+    responses={
+        422: {'description': 'Invalid or missing input files'},
+        500: {'description': 'Export processing error'},
+    },
+)
+def video_export(
+    payload: ExportRequest,
+    _: None = Depends(require_api_token),
+) -> ExportResponse:
+    try:
+        return export_service.export(payload)
     except HTTPException:
         raise
     except FileNotFoundError as exception:

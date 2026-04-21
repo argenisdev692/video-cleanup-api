@@ -107,3 +107,25 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
+
+
+class ExportRequest(BaseModel):
+    job_uuid: str
+    video_paths: list[str] = Field(min_length=1)
+    silence_threshold_seconds: float = Field(default=2.0, ge=0.5, le=10.0)
+
+    @model_validator(mode='after')
+    def validate_video_paths(self) -> 'ExportRequest':
+        if not self.video_paths:
+            raise ValueError('video_paths must contain at least one path')
+        return self
+
+
+class ExportResponse(BaseModel):
+    job_uuid: str
+    status: str = 'completed'
+    output_path: str
+    storage_url: str | None = None
+    duration_seconds: float
+    silence_cuts: int
+    diagnostics: dict[str, Any] = Field(default_factory=dict)

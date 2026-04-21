@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     clean_lra: int = 7                      # rango de loudness LU
     # Step 8 — Amplify
     clean_amplify_db: float = 6.144         # amplificacion final en dB
+    # /video-export HD specs (794 kbps video + 298 kbps audio = 1092 kbps total)
+    export_video_bitrate: str = '794k'
+    export_video_maxrate: str = '794k'
+    export_video_bufsize: str = '1588k'     # 2x maxrate
+    export_audio_bitrate: str = '298k'
+    export_audio_sample_rate: int = 48000
+    export_audio_channels: int = 2
     render_video_codec: str = 'libx264'
     render_audio_codec: str = 'aac'
     render_crf: int = 18
