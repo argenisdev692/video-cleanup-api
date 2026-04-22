@@ -43,21 +43,36 @@ class VoiceActivityDetectionService:
         }
         return regions, diagnostics
 
-    def detect_silence_gaps(self, regions: list[SpeechRegion], *, duration_seconds: float, minimum_gap_seconds: float) -> list[SpeechRegion]:
+    def detect_silence_gaps(
+        self,
+        regions: list[SpeechRegion],
+        *,
+        duration_seconds: float,
+        minimum_gap_seconds: float,
+        trim_to_seconds: float | None = None,
+    ) -> list[SpeechRegion]:
         if not regions:
             if duration_seconds >= minimum_gap_seconds:
-                return [SpeechRegion(start_seconds=0.0, end_seconds=duration_seconds)]
+                gap_end = duration_seconds if trim_to_seconds is None else max(0.0, duration_seconds - trim_to_seconds)
+                if gap_end > 0.0:
+                    return [SpeechRegion(start_seconds=0.0, end_seconds=gap_end)]
             return []
 
         gaps: list[SpeechRegion] = []
         cursor = 0.0
         for region in regions:
-            if region.start_seconds - cursor >= minimum_gap_seconds:
-                gaps.append(SpeechRegion(start_seconds=cursor, end_seconds=region.start_seconds))
+            raw_gap = region.start_seconds - cursor
+            if raw_gap >= minimum_gap_seconds:
+                gap_end = region.start_seconds if trim_to_seconds is None else region.start_seconds - trim_to_seconds
+                if gap_end > cursor:
+                    gaps.append(SpeechRegion(start_seconds=cursor, end_seconds=gap_end))
             cursor = max(cursor, region.end_seconds)
 
-        if duration_seconds - cursor >= minimum_gap_seconds:
-            gaps.append(SpeechRegion(start_seconds=cursor, end_seconds=duration_seconds))
+        trailing_gap = duration_seconds - cursor
+        if trailing_gap >= minimum_gap_seconds:
+            gap_end = duration_seconds if trim_to_seconds is None else max(cursor, duration_seconds - trim_to_seconds)
+            if gap_end > cursor:
+                gaps.append(SpeechRegion(start_seconds=cursor, end_seconds=gap_end))
 
         return gaps
 

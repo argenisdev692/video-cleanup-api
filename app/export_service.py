@@ -46,6 +46,7 @@ class VideoExportService:
             speech_regions,
             duration_seconds=prepared_audio.duration_seconds,
             minimum_gap_seconds=request.silence_threshold_seconds,
+            trim_to_seconds=request.silence_trim_to_seconds,
         )
 
         pause_cuts: list[tuple[float, float]] = []

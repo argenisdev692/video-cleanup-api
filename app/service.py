@@ -95,6 +95,7 @@ class TutorialCleanupAnalysisService:
                 speech_regions,
                 duration_seconds=prepared_audio.duration_seconds,
                 minimum_gap_seconds=payload.rules.silence_threshold_seconds,
+                trim_to_seconds=payload.rules.silence_trim_to_seconds,
             )
         except Exception as exception:
             vad_diagnostics = {'vad_error': str(exception)}
