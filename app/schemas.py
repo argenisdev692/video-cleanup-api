@@ -27,7 +27,7 @@ class TitleOverlay(BaseModel):
 
 class RulesPayload(BaseModel):
     pause_keyword: str = 'PAUSA'
-    silence_threshold_seconds: float = 1.0
+    silence_threshold_seconds: float = 3.0
     detect_fillers: bool = True
     detect_repeated_words: bool = True
     detect_self_corrections: bool = True
@@ -112,7 +112,9 @@ class HealthResponse(BaseModel):
 class ExportRequest(BaseModel):
     job_uuid: str
     video_paths: list[str] = Field(min_length=1)
-    silence_threshold_seconds: float = Field(default=1.0, ge=0.3, le=10.0)
+    silence_threshold_seconds: float = Field(default=3.0, ge=0.3, le=10.0)
+    pause_keyword: str = 'PAUSA'
+    language: str = 'es'
 
     @model_validator(mode='after')
     def validate_video_paths(self) -> 'ExportRequest':

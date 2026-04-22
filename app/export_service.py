@@ -7,10 +7,11 @@ from typing import Any
 
 from app.config import settings
 from app.media import AudioPreparationService
-from app.models import ResolvedInput
+from app.models import ResolvedInput, TranscriptSegment
 from app.resolver import InputResolver
 from app.schemas import ExportRequest, ExportResponse, MergeExportRequest, MergeExportResponse
 from app.storage import ArtifactWriter
+from app.transcription import TranscriptionService
 from app.vad import VoiceActivityDetectionService
 
 
@@ -21,11 +22,13 @@ class VideoExportService:
         audio_preparation_service: AudioPreparationService | None = None,
         vad_service: VoiceActivityDetectionService | None = None,
         artifact_writer: ArtifactWriter | None = None,
+        transcription_service: TranscriptionService | None = None,
     ) -> None:
         self.input_resolver = input_resolver or InputResolver()
         self.audio_preparation_service = audio_preparation_service or AudioPreparationService()
         self.vad_service = vad_service or VoiceActivityDetectionService()
         self.artifact_writer = artifact_writer or ArtifactWriter()
+        self.transcription_service = transcription_service or TranscriptionService()
 
     def export(self, request: ExportRequest) -> ExportResponse:
         resolved = [self.input_resolver.resolve(p, kind='video') for p in request.video_paths]
@@ -45,7 +48,12 @@ class VideoExportService:
             minimum_gap_seconds=request.silence_threshold_seconds,
         )
 
-        cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps]
+        pause_cuts: list[tuple[float, float]] = []
+        if request.pause_keyword:
+            segments, _ = self.transcription_service.transcribe(prepared_audio, language=request.language)
+            pause_cuts = self._find_pause_cuts(segments, request.pause_keyword)
+
+        cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps] + pause_cuts
         keep_ranges = self._invert_cuts(cut_ranges, prepared_audio.duration_seconds)
 
         if not keep_ranges:
@@ -74,6 +82,7 @@ class VideoExportService:
             'merged': len(resolved) > 1,
             'original_duration_seconds': round(prepared_audio.duration_seconds, 3),
             'silence_cuts': len(silence_gaps),
+            'pause_cuts': len(pause_cuts),
             'keep_segments': len(keep_ranges),
             'output_path': str(output_path),
             **vad_diagnostics,
@@ -217,6 +226,27 @@ class VideoExportService:
             raise RuntimeError(completed.stderr.strip() or 'ffmpeg failed to render export')
 
         return output_path
+
+    def _find_pause_cuts(self, segments: list[TranscriptSegment], pause_keyword: str) -> list[tuple[float, float]]:
+        cuts: list[tuple[float, float]] = []
+        keyword = pause_keyword.casefold()
+        previous: TranscriptSegment | None = None
+        for segment in segments:
+            if keyword in segment.text.casefold():
+                pause_end = self._find_pause_end(segment, keyword)
+                cut_start = previous.start_seconds if previous is not None else segment.start_seconds
+                cuts.append((cut_start, pause_end))
+            previous = segment
+        return cuts
+
+    def _find_pause_end(self, segment: TranscriptSegment, keyword: str) -> float:
+        if not segment.words:
+            return segment.end_seconds
+        clean = lambda t: t.strip(" .,;:!?¡¿\"'()[]{}").casefold()
+        for word in segment.words:
+            if clean(word.text) == keyword:
+                return word.end_seconds
+        return segment.end_seconds
 
     def _invert_cuts(
         self,
