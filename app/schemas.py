@@ -26,8 +26,8 @@ class TitleOverlay(BaseModel):
 
 
 class RulesPayload(BaseModel):
-    pause_keyword: str = 'PAUSA'
-    silence_threshold_seconds: float = 3.0
+    pause_keywords: list[str] = Field(default_factory=lambda: ['PAUSA ACA', 'PAUSA ACÁ', 'PAUSA'])
+    silence_threshold_seconds: float = 0.5
     silence_trim_to_seconds: float | None = None
     detect_fillers: bool = True
     detect_repeated_words: bool = True
@@ -113,9 +113,9 @@ class HealthResponse(BaseModel):
 class ExportRequest(BaseModel):
     job_uuid: str
     video_paths: list[str] = Field(min_length=1)
-    silence_threshold_seconds: float = Field(default=3.0, ge=0.3, le=10.0)
+    silence_threshold_seconds: float = Field(default=0.5, ge=0.1, le=10.0)
     silence_trim_to_seconds: float | None = Field(default=None, ge=0.1, le=5.0)
-    pause_keyword: str = 'PAUSA'
+    pause_keywords: list[str] = Field(default_factory=lambda: ['PAUSA ACA', 'PAUSA ACÁ', 'PAUSA'])
     language: str = 'es'
 
     @model_validator(mode='after')

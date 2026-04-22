@@ -426,15 +426,20 @@ class TutorialCleanupAnalysisService:
         candidates: list[EditCandidate] = []
         fillers = tuple(term.casefold() for term in settings.filler_terms)
         correction_terms = tuple(term.casefold() for term in settings.correction_terms)
-        pause_keyword = payload.rules.pause_keyword.casefold()
+        pause_keywords = sorted(
+            (kw.casefold() for kw in payload.rules.pause_keywords if kw.strip()),
+            key=lambda kw: len(kw.split()),
+            reverse=True,
+        )
 
         previous_segment: TranscriptSegment | None = None
         for segment in transcript_segments:
             normalized = segment.text.casefold()
             duration = max(0.0, segment.end_seconds - segment.start_seconds)
 
-            if pause_keyword and pause_keyword in normalized:
-                pause_end = self._find_pause_end_seconds(segment, pause_keyword) or segment.end_seconds
+            matched_keyword = next((kw for kw in pause_keywords if kw in normalized), None)
+            if matched_keyword:
+                pause_end = self._find_pause_end_seconds(segment, matched_keyword) or segment.end_seconds
                 # Cut from the START of the previous segment (the mistaken take) through the pause marker
                 cut_start = previous_segment.start_seconds if previous_segment is not None else segment.start_seconds
                 candidates.append(
@@ -443,7 +448,7 @@ class TutorialCleanupAnalysisService:
                         end_seconds=pause_end,
                         action='cut',
                         reason='pause_keyword',
-                        observation='Corte por PAUSA: elimina la toma errónea anterior y el marcador de pausa.',
+                        observation=f'Corte por "{matched_keyword}": elimina la toma errónea anterior y el marcador de pausa.',
                         confidence=0.99,
                         estimated_saved_seconds=max(1.0, pause_end - cut_start),
                         priority=100,
