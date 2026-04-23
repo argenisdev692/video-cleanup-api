@@ -58,6 +58,7 @@ class AnalysisRequest(BaseModel):
     rules: RulesPayload
     editorial_prompt: str | None = None
     title_overlays: list[TitleOverlay] = Field(default_factory=list)
+    delete_sources_on_success: bool = False
 
     @model_validator(mode='after')
     def validate_durations(self) -> 'AnalysisRequest':
@@ -143,6 +144,7 @@ class ExportRequest(BaseModel):
         'PAUZA',
     ])
     language: str = 'es'
+    delete_sources_on_success: bool = False
 
     @model_validator(mode='after')
     def validate_video_paths(self) -> 'ExportRequest':
@@ -164,6 +166,7 @@ class ExportResponse(BaseModel):
 class MergeExportRequest(BaseModel):
     job_uuid: str
     video_paths: list[str] = Field(min_length=1)
+    delete_sources_on_success: bool = False
 
 
 class MergeExportResponse(BaseModel):

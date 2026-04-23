@@ -224,6 +224,12 @@ class TutorialCleanupAnalysisService:
             except Exception as e:
                 diagnostics['r2_upload_error'] = str(e)
 
+        if payload.delete_sources_on_success and storage_url:
+            deleted, errors = self._delete_r2_sources(video_paths)
+            diagnostics['r2_sources_deleted'] = deleted
+            if errors:
+                diagnostics['r2_sources_delete_errors'] = errors
+
         artifacts = None
         if payload.rules.store_artifacts:
             artifacts = self._write_artifacts(
@@ -868,6 +874,20 @@ class TutorialCleanupAnalysisService:
             return float(clean)
         except (TypeError, ValueError):
             return 0.0
+
+    def _delete_r2_sources(self, video_paths: list[str]) -> tuple[list[str], dict[str, str]]:
+        deleted: list[str] = []
+        errors: dict[str, str] = {}
+        for path in video_paths:
+            key = self.artifact_writer.extract_r2_key(path)
+            if not key:
+                continue
+            try:
+                self.artifact_writer.delete_from_r2(remote_key=key)
+                deleted.append(key)
+            except Exception as exc:
+                errors[key] = str(exc)
+        return deleted, errors
 
     def _build_protected_ranges(
         self,

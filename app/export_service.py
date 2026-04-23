@@ -91,6 +91,12 @@ class VideoExportService:
         if diagnostics_r2_error:
             diagnostics['r2_upload_error'] = diagnostics_r2_error
 
+        if request.delete_sources_on_success and storage_url:
+            deleted, errors = self._delete_r2_sources(request.video_paths)
+            diagnostics['r2_sources_deleted'] = deleted
+            if errors:
+                diagnostics['r2_sources_delete_errors'] = errors
+
         return ExportResponse(
             job_uuid=request.job_uuid,
             status='completed',
@@ -100,6 +106,20 @@ class VideoExportService:
             silence_cuts=len(silence_gaps),
             diagnostics=diagnostics,
         )
+
+    def _delete_r2_sources(self, video_paths: list[str]) -> tuple[list[str], dict[str, str]]:
+        deleted: list[str] = []
+        errors: dict[str, str] = {}
+        for path in video_paths:
+            key = self.artifact_writer.extract_r2_key(path)
+            if not key:
+                continue
+            try:
+                self.artifact_writer.delete_from_r2(remote_key=key)
+                deleted.append(key)
+            except Exception as exc:
+                errors[key] = str(exc)
+        return deleted, errors
 
     def _merge_videos(self, inputs: list[ResolvedInput], *, job_uuid: str) -> ResolvedInput:
         ffmpeg_path = shutil.which(settings.ffmpeg_binary)
@@ -322,6 +342,12 @@ class VideoMergeExportService:
         if r2_error:
             diagnostics['r2_upload_error'] = r2_error
 
+        if request.delete_sources_on_success and storage_url:
+            deleted, errors = self._delete_r2_sources(request.video_paths)
+            diagnostics['r2_sources_deleted'] = deleted
+            if errors:
+                diagnostics['r2_sources_delete_errors'] = errors
+
         return MergeExportResponse(
             job_uuid=request.job_uuid,
             status='completed',
@@ -330,6 +356,20 @@ class VideoMergeExportService:
             duration_seconds=duration_seconds,
             diagnostics=diagnostics,
         )
+
+    def _delete_r2_sources(self, video_paths: list[str]) -> tuple[list[str], dict[str, str]]:
+        deleted: list[str] = []
+        errors: dict[str, str] = {}
+        for path in video_paths:
+            key = self.artifact_writer.extract_r2_key(path)
+            if not key:
+                continue
+            try:
+                self.artifact_writer.delete_from_r2(remote_key=key)
+                deleted.append(key)
+            except Exception as exc:
+                errors[key] = str(exc)
+        return deleted, errors
 
     def _merge_and_render(self, inputs: list[ResolvedInput], *, job_uuid: str) -> Path:
         ffmpeg_path = shutil.which(settings.ffmpeg_binary)
