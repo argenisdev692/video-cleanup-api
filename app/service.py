@@ -444,9 +444,15 @@ class TutorialCleanupAnalysisService:
             duration = max(0.0, segment.end_seconds - segment.start_seconds)
 
             matched_keyword = next((kw for kw in pause_keywords if kw in normalized), None)
+            pause_end: float | None = None
             if matched_keyword:
                 pause_end = self._find_pause_end_seconds(segment, matched_keyword) or segment.end_seconds
-                # Cut from the START of the previous segment (the mistaken take) through the pause marker
+            else:
+                cross_match = self._find_cross_segment_pause(previous_segment, segment, pause_keywords)
+                if cross_match is not None:
+                    matched_keyword, pause_end = cross_match
+
+            if matched_keyword and pause_end is not None:
                 cut_start = previous_segment.start_seconds if previous_segment is not None else segment.start_seconds
                 candidates.append(
                     EditCandidate(
@@ -903,6 +909,44 @@ class TutorialCleanupAnalysisService:
                 protected.append((cursor, cursor + duration))
             cursor += duration
         return protected
+
+    def _find_cross_segment_pause(
+        self,
+        previous_segment: TranscriptSegment | None,
+        segment: TranscriptSegment,
+        pause_keywords: list[str],
+    ) -> tuple[str, float] | None:
+        if previous_segment is None:
+            return None
+        clean = lambda t: t.strip(" .,;:!?¡¿\"'()[]{}").casefold()
+
+        if previous_segment.words:
+            prev_clean = [clean(w.text) for w in previous_segment.words]
+        else:
+            prev_clean = [clean(w) for w in previous_segment.text.split()]
+
+        if segment.words:
+            seg_clean = [clean(w.text) for w in segment.words]
+        else:
+            seg_clean = [clean(w) for w in segment.text.split()]
+
+        for keyword in pause_keywords:
+            parts = keyword.split()
+            if len(parts) < 2:
+                continue
+            for split_at in range(1, len(parts)):
+                prev_part = parts[:split_at]
+                seg_part = parts[split_at:]
+                if len(prev_clean) < len(prev_part) or prev_clean[-len(prev_part):] != prev_part:
+                    continue
+                if len(seg_clean) < len(seg_part) or seg_clean[:len(seg_part)] != seg_part:
+                    continue
+                if segment.words and len(segment.words) >= len(seg_part):
+                    end_seconds = segment.words[len(seg_part) - 1].end_seconds
+                else:
+                    end_seconds = segment.end_seconds
+                return keyword, end_seconds
+        return None
 
     def _find_pause_end_seconds(self, segment: TranscriptSegment, pause_keyword: str) -> float | None:
         if not segment.words:
