@@ -41,7 +41,7 @@ class RulesPayload(BaseModel):
         'PAUZA',
     ])
     silence_threshold_seconds: float = 2.0
-    silence_trim_to_seconds: float | None = 0.3
+    silence_trim_to_seconds: float | None = None
     detect_fillers: bool = True
     detect_repeated_words: bool = True
     detect_self_corrections: bool = True
@@ -58,7 +58,6 @@ class AnalysisRequest(BaseModel):
     rules: RulesPayload
     editorial_prompt: str | None = None
     title_overlays: list[TitleOverlay] = Field(default_factory=list)
-    delete_sources_on_success: bool = False
 
     @model_validator(mode='after')
     def validate_durations(self) -> 'AnalysisRequest':
@@ -128,7 +127,7 @@ class ExportRequest(BaseModel):
     job_uuid: str
     video_paths: list[str] = Field(min_length=1)
     silence_threshold_seconds: float = Field(default=2.0, ge=0.1, le=10.0)
-    silence_trim_to_seconds: float | None = Field(default=0.3, ge=0.1, le=5.0)
+    silence_trim_to_seconds: float | None = Field(default=None, ge=0.1, le=5.0)
     pause_keywords: list[str] = Field(default_factory=lambda: [
         'PAUSA ACA',
         'PAUSA ACÁ',
@@ -144,7 +143,6 @@ class ExportRequest(BaseModel):
         'PAUZA',
     ])
     language: str = 'es'
-    delete_sources_on_success: bool = False
 
     @model_validator(mode='after')
     def validate_video_paths(self) -> 'ExportRequest':
@@ -166,7 +164,6 @@ class ExportResponse(BaseModel):
 class MergeExportRequest(BaseModel):
     job_uuid: str
     video_paths: list[str] = Field(min_length=1)
-    delete_sources_on_success: bool = False
 
 
 class MergeExportResponse(BaseModel):

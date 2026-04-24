@@ -32,26 +32,9 @@ class ArtifactWriter:
     def upload_to_r2(self, *, local_path: Path, remote_key: str) -> str:
         s3 = self._get_s3_client()
         s3.upload_file(str(local_path), settings.r2_bucket_name, remote_key)
-
+        
         public_url = f"{settings.r2_public_base_url}/{remote_key}"
         return public_url
-
-    def delete_from_r2(self, *, remote_key: str) -> None:
-        s3 = self._get_s3_client()
-        s3.delete_object(Bucket=settings.r2_bucket_name, Key=remote_key)
-
-    def extract_r2_key(self, url: str) -> str | None:
-        if not url:
-            return None
-        candidate = url.strip()
-        public_base = (settings.r2_public_base_url or '').rstrip('/')
-        if public_base and candidate.startswith(public_base + '/'):
-            return candidate[len(public_base) + 1:]
-        endpoint_base = (settings.r2_endpoint or '').rstrip('/')
-        bucket = settings.r2_bucket_name or ''
-        if endpoint_base and bucket and candidate.startswith(f'{endpoint_base}/{bucket}/'):
-            return candidate[len(endpoint_base) + len(bucket) + 2:]
-        return None
     def write(
         self,
         *,

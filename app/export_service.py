@@ -91,12 +91,6 @@ class VideoExportService:
         if diagnostics_r2_error:
             diagnostics['r2_upload_error'] = diagnostics_r2_error
 
-        if request.delete_sources_on_success and storage_url:
-            deleted, errors = self._delete_r2_sources(request.video_paths)
-            diagnostics['r2_sources_deleted'] = deleted
-            if errors:
-                diagnostics['r2_sources_delete_errors'] = errors
-
         return ExportResponse(
             job_uuid=request.job_uuid,
             status='completed',
@@ -106,20 +100,6 @@ class VideoExportService:
             silence_cuts=len(silence_gaps),
             diagnostics=diagnostics,
         )
-
-    def _delete_r2_sources(self, video_paths: list[str]) -> tuple[list[str], dict[str, str]]:
-        deleted: list[str] = []
-        errors: dict[str, str] = {}
-        for path in video_paths:
-            key = self.artifact_writer.extract_r2_key(path)
-            if not key:
-                continue
-            try:
-                self.artifact_writer.delete_from_r2(remote_key=key)
-                deleted.append(key)
-            except Exception as exc:
-                errors[key] = str(exc)
-        return deleted, errors
 
     def _merge_videos(self, inputs: list[ResolvedInput], *, job_uuid: str) -> ResolvedInput:
         ffmpeg_path = shutil.which(settings.ffmpeg_binary)
@@ -259,57 +239,12 @@ class VideoExportService:
         for segment in segments:
             normalized = segment.text.casefold()
             matched = next((kw for kw in keywords_sorted if kw in normalized), None)
-            pause_end: float | None = None
             if matched is not None:
                 pause_end = self._find_pause_end(segment, matched)
-            else:
-                cross = self._find_cross_segment_pause(previous, segment, keywords_sorted)
-                if cross is not None:
-                    matched, pause_end = cross
-
-            if matched is not None and pause_end is not None:
                 cut_start = previous.start_seconds if previous is not None else segment.start_seconds
                 cuts.append((cut_start, pause_end))
             previous = segment
         return cuts
-
-    def _find_cross_segment_pause(
-        self,
-        previous: TranscriptSegment | None,
-        segment: TranscriptSegment,
-        pause_keywords: list[str],
-    ) -> tuple[str, float] | None:
-        if previous is None:
-            return None
-        clean = lambda t: t.strip(" .,;:!?¡¿\"'()[]{}").casefold()
-
-        if previous.words:
-            prev_clean = [clean(w.text) for w in previous.words]
-        else:
-            prev_clean = [clean(w) for w in previous.text.split()]
-
-        if segment.words:
-            seg_clean = [clean(w.text) for w in segment.words]
-        else:
-            seg_clean = [clean(w) for w in segment.text.split()]
-
-        for keyword in pause_keywords:
-            parts = keyword.split()
-            if len(parts) < 2:
-                continue
-            for split_at in range(1, len(parts)):
-                prev_part = parts[:split_at]
-                seg_part = parts[split_at:]
-                if len(prev_clean) < len(prev_part) or prev_clean[-len(prev_part):] != prev_part:
-                    continue
-                if len(seg_clean) < len(seg_part) or seg_clean[:len(seg_part)] != seg_part:
-                    continue
-                if segment.words and len(segment.words) >= len(seg_part):
-                    end_seconds = segment.words[len(seg_part) - 1].end_seconds
-                else:
-                    end_seconds = segment.end_seconds
-                return keyword, end_seconds
-        return None
 
     def _find_pause_end(self, segment: TranscriptSegment, keyword: str) -> float:
         if not segment.words:
@@ -387,12 +322,6 @@ class VideoMergeExportService:
         if r2_error:
             diagnostics['r2_upload_error'] = r2_error
 
-        if request.delete_sources_on_success and storage_url:
-            deleted, errors = self._delete_r2_sources(request.video_paths)
-            diagnostics['r2_sources_deleted'] = deleted
-            if errors:
-                diagnostics['r2_sources_delete_errors'] = errors
-
         return MergeExportResponse(
             job_uuid=request.job_uuid,
             status='completed',
@@ -401,20 +330,6 @@ class VideoMergeExportService:
             duration_seconds=duration_seconds,
             diagnostics=diagnostics,
         )
-
-    def _delete_r2_sources(self, video_paths: list[str]) -> tuple[list[str], dict[str, str]]:
-        deleted: list[str] = []
-        errors: dict[str, str] = {}
-        for path in video_paths:
-            key = self.artifact_writer.extract_r2_key(path)
-            if not key:
-                continue
-            try:
-                self.artifact_writer.delete_from_r2(remote_key=key)
-                deleted.append(key)
-            except Exception as exc:
-                errors[key] = str(exc)
-        return deleted, errors
 
     def _merge_and_render(self, inputs: list[ResolvedInput], *, job_uuid: str) -> Path:
         ffmpeg_path = shutil.which(settings.ffmpeg_binary)
