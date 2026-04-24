@@ -8,7 +8,6 @@ from fastapi.responses import FileResponse, RedirectResponse
 from app.artifacts import ArtifactFileLocator
 from app.config import settings
 from app.export_service import VideoExportService, VideoMergeExportService
-from app.jobs import enqueue_job, get_job_state
 from app.schemas import AnalysisRequest, AnalysisResponse, ExportRequest, ExportResponse, HealthResponse, MergeExportRequest, MergeExportResponse
 from app.service import TutorialCleanupAnalysisService
 
@@ -126,74 +125,6 @@ def video_export_merge(
         raise HTTPException(status_code=422, detail=str(exception)) from exception
     except Exception as exception:
         raise HTTPException(status_code=500, detail=str(exception)) from exception
-
-
-@app.post(
-    '/analysis/jobs/async',
-    status_code=202,
-    responses={
-        202: {'description': 'Job accepted and queued'},
-        500: {'description': 'Queue error'},
-    },
-)
-async def analyze_async_enqueue(
-    payload: AnalysisRequest,
-    _: None = Depends(require_api_token),
-) -> dict:
-    try:
-        await enqueue_job('run_analysis', payload.model_dump(mode='json'), payload.job_uuid)
-    except Exception as exception:
-        raise HTTPException(status_code=500, detail=f'Failed to enqueue job: {exception}') from exception
-    return {'job_uuid': payload.job_uuid, 'status': 'queued'}
-
-
-@app.post(
-    '/video-export/async',
-    status_code=202,
-    responses={
-        202: {'description': 'Job accepted and queued'},
-        500: {'description': 'Queue error'},
-    },
-)
-async def video_export_async_enqueue(
-    payload: ExportRequest,
-    _: None = Depends(require_api_token),
-) -> dict:
-    try:
-        await enqueue_job('run_export', payload.model_dump(mode='json'), payload.job_uuid)
-    except Exception as exception:
-        raise HTTPException(status_code=500, detail=f'Failed to enqueue job: {exception}') from exception
-    return {'job_uuid': payload.job_uuid, 'status': 'queued'}
-
-
-@app.post(
-    '/video-export-merge/async',
-    status_code=202,
-    responses={
-        202: {'description': 'Job accepted and queued'},
-        500: {'description': 'Queue error'},
-    },
-)
-async def video_export_merge_async_enqueue(
-    payload: MergeExportRequest,
-    _: None = Depends(require_api_token),
-) -> dict:
-    try:
-        await enqueue_job('run_merge_export', payload.model_dump(mode='json'), payload.job_uuid)
-    except Exception as exception:
-        raise HTTPException(status_code=500, detail=f'Failed to enqueue job: {exception}') from exception
-    return {'job_uuid': payload.job_uuid, 'status': 'queued'}
-
-
-@app.get('/jobs/{job_uuid}')
-async def get_job(
-    job_uuid: str,
-    _: None = Depends(require_api_token),
-) -> dict:
-    try:
-        return await get_job_state(job_uuid)
-    except Exception as exception:
-        raise HTTPException(status_code=500, detail=f'Failed to query job: {exception}') from exception
 
 
 @app.get('/artifacts/{job_uuid}/{artifact_key}')
