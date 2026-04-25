@@ -53,8 +53,9 @@ class VideoExportService:
 
         pause_cuts: list[tuple[float, float]] = []
         filler_cuts: list[tuple[float, float]] = []
+        word_gap_cuts: list[tuple[float, float]] = []
         transcription_diagnostics: dict[str, Any] = {}
-        if request.pause_keywords or request.detect_fillers:
+        if request.pause_keywords or request.detect_fillers or request.compact_word_gaps:
             segments, transcription_diagnostics = self.transcription_service.transcribe(prepared_audio, language=request.language)
             transcription_diagnostics['transcription_text'] = ' | '.join(s.text.strip() for s in segments)[:600]
             if request.pause_keywords:
@@ -67,8 +68,18 @@ class VideoExportService:
             transcription_diagnostics['filler_cut_ranges'] = [
                 [round(s, 3), round(e, 3)] for s, e in filler_cuts
             ]
+            if request.compact_word_gaps:
+                word_gap_cuts = self._find_word_gap_cuts(
+                    segments,
+                    gap_threshold_seconds=request.word_gap_threshold_seconds,
+                    trim_to_seconds=request.word_gap_trim_to_seconds,
+                    long_silence_threshold_seconds=request.silence_threshold_seconds,
+                )
+            transcription_diagnostics['word_gap_cut_ranges'] = [
+                [round(s, 3), round(e, 3)] for s, e in word_gap_cuts
+            ]
 
-        cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps] + pause_cuts + filler_cuts
+        cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps] + pause_cuts + filler_cuts + word_gap_cuts
         keep_ranges = self._invert_cuts(cut_ranges, prepared_audio.duration_seconds)
 
         if not keep_ranges:
@@ -99,6 +110,7 @@ class VideoExportService:
             'silence_cuts': len(silence_gaps),
             'pause_cuts': len(pause_cuts),
             'filler_cuts': len(filler_cuts),
+            'word_gap_cuts': len(word_gap_cuts),
             'keep_segments': len(keep_ranges),
             'output_path': str(output_path),
             **vad_diagnostics,
@@ -388,6 +400,54 @@ class VideoExportService:
                 logger.info(f"_find_filler_cuts: Found leading filler '{normalized_words[0]}', cut from {segment.start_seconds:.3f} to {cut_end:.3f}")
 
         logger.info(f"_find_filler_cuts: Total cuts found: {len(cuts)}")
+        return cuts
+
+    def _find_word_gap_cuts(
+        self,
+        segments: list[TranscriptSegment],
+        *,
+        gap_threshold_seconds: float,
+        trim_to_seconds: float,
+        long_silence_threshold_seconds: float,
+    ) -> list[tuple[float, float]]:
+        import logging
+        logger = logging.getLogger(__name__)
+
+        words = sorted(
+            [
+                word
+                for segment in segments
+                for word in segment.words
+                if self._clean_transcript_token(word.text)
+            ],
+            key=lambda word: word.start_seconds,
+        )
+        cuts: list[tuple[float, float]] = []
+
+        for previous_word, next_word in zip(words, words[1:]):
+            gap_start = previous_word.end_seconds
+            gap_end = next_word.start_seconds
+            gap_duration = gap_end - gap_start
+
+            if gap_duration < gap_threshold_seconds:
+                continue
+            if gap_duration >= long_silence_threshold_seconds:
+                continue
+            if gap_duration <= trim_to_seconds:
+                continue
+
+            cut_start = gap_start + trim_to_seconds / 2
+            cut_end = gap_end - trim_to_seconds / 2
+            if cut_end - cut_start < settings.render_min_segment_seconds:
+                continue
+
+            cuts.append((cut_start, cut_end))
+            logger.info(
+                f"_find_word_gap_cuts: Gap {gap_duration:.3f}s between "
+                f"'{previous_word.text}' and '{next_word.text}', cut from {cut_start:.3f} to {cut_end:.3f}"
+            )
+
+        logger.info(f"_find_word_gap_cuts: Total cuts found: {len(cuts)}")
         return cuts
 
     @staticmethod

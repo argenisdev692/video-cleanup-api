@@ -146,6 +146,9 @@ class ExportRequest(BaseModel):
     ])
     detect_fillers: bool = True
     filler_terms: list[str] = Field(default_factory=lambda: list(settings.filler_terms))
+    compact_word_gaps: bool = True
+    word_gap_threshold_seconds: float = Field(default=0.55, ge=0.2, le=2.0)
+    word_gap_trim_to_seconds: float = Field(default=0.18, ge=0.05, le=0.6)
     language: str = 'es'
 
     @model_validator(mode='after')
