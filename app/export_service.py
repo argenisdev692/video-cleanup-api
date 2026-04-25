@@ -318,7 +318,12 @@ class VideoExportService:
                     else:
                         cut_start = segments[seg_idx - 1].start_seconds
                         logger.info(f"_find_pause_cuts: Cutting from START of PREVIOUS segment ({cut_start:.3f}) - keyword is at beginning of current segment")
-                    cuts.append((cut_start, kw_end))
+                    
+                    # IMPORTANT: Cut only to the END of the keyword, not the end of the segment.
+                    # This preserves any content that comes AFTER the keyword in the same segment.
+                    cut_end = kw_end
+                    logger.info(f"_find_pause_cuts: Cut range: ({cut_start:.3f}, {cut_end:.3f}) - segment ends at {segments[seg_idx].end_seconds:.3f}")
+                    cuts.append((cut_start, cut_end))
                     matches_found += 1
                     logger.info(f"_find_pause_cuts: Found match for '{kw}' at position {i}, cut from {cut_start:.3f} to {kw_end:.3f}")
                 logger.info(f"_find_pause_cuts: Keyword '{kw}' found {matches_found} matches")
