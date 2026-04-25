@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -50,8 +51,10 @@ class VideoExportService:
         )
 
         pause_cuts: list[tuple[float, float]] = []
+        transcription_diagnostics: dict[str, Any] = {}
         if request.pause_keywords:
-            segments, _ = self.transcription_service.transcribe(prepared_audio, language=request.language)
+            segments, transcription_diagnostics = self.transcription_service.transcribe(prepared_audio, language=request.language)
+            transcription_diagnostics['transcription_text'] = ' | '.join(s.text.strip() for s in segments)[:600]
             pause_cuts = self._find_pause_cuts(segments, request.pause_keywords)
 
         cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps] + pause_cuts
@@ -87,6 +90,7 @@ class VideoExportService:
             'keep_segments': len(keep_ranges),
             'output_path': str(output_path),
             **vad_diagnostics,
+            **transcription_diagnostics,
         }
         if diagnostics_r2_error:
             diagnostics['r2_upload_error'] = diagnostics_r2_error
@@ -228,40 +232,57 @@ class VideoExportService:
 
         return output_path
 
+    @staticmethod
+    def _normalize(text: str) -> str:
+        """Casefold + strip diacritics so 'PAUSA ACÁ' == 'pausa aca' == 'Pausa Acá'."""
+        return ''.join(
+            c for c in unicodedata.normalize('NFD', text.casefold())
+            if unicodedata.category(c) != 'Mn'
+        )
+
     def _find_pause_cuts(self, segments: list[TranscriptSegment], pause_keywords: list[str]) -> list[tuple[float, float]]:
         cuts: list[tuple[float, float]] = []
+        # Deduplicate after normalization (e.g. 'PAUSA ACA' and 'PAUSA ACÁ' collapse to same)
         keywords_sorted = sorted(
-            (kw.casefold() for kw in pause_keywords if kw.strip()),
+            {self._normalize(kw) for kw in pause_keywords if kw.strip()},
             key=lambda kw: len(kw.split()),
             reverse=True,
         )
         previous: TranscriptSegment | None = None
         for segment in segments:
-            normalized = segment.text.casefold()
+            normalized = self._normalize(segment.text)
             matched = next((kw for kw in keywords_sorted if kw in normalized), None)
             if matched is not None:
-                pause_end = self._find_pause_end(segment, matched)
-                cut_start = previous.start_seconds if previous is not None else segment.start_seconds
+                pause_start, pause_end = self._find_pause_bounds(segment, matched)
+                # If the pause keyword is not at the very start of this segment,
+                # the bad take content is INSIDE this segment — cut from segment start.
+                # Otherwise the bad take was in the previous segment.
+                if pause_start > segment.start_seconds + 0.5 or previous is None:
+                    cut_start = segment.start_seconds
+                else:
+                    cut_start = previous.start_seconds
                 cuts.append((cut_start, pause_end))
             previous = segment
         return cuts
 
-    def _find_pause_end(self, segment: TranscriptSegment, keyword: str) -> float:
+    def _find_pause_bounds(self, segment: TranscriptSegment, keyword: str) -> tuple[float, float]:
+        """Return (start, end) of the pause keyword inside the segment, using word timestamps."""
         if not segment.words:
-            return segment.end_seconds
+            return segment.start_seconds, segment.end_seconds
         keyword_words = keyword.split()
-        clean = lambda t: t.strip(" .,;:!?¡¿\"'()[]{}").casefold()
+        clean = lambda t: self._normalize(t.strip(" .,;:!?¡¿\"'()[]{}"))
         for i, word in enumerate(segment.words):
             if clean(word.text) != keyword_words[0]:
                 continue
             if len(keyword_words) == 1:
-                return word.end_seconds
+                return word.start_seconds, word.end_seconds
             if all(
-                i + j < len(segment.words) and clean(segment.words[i + j].text) == kw
-                for j, kw in enumerate(keyword_words[1:], 1)
+                i + j < len(segment.words) and clean(segment.words[i + j].text) == keyword_words[j]
+                for j in range(1, len(keyword_words))
             ):
-                return segment.words[i + len(keyword_words) - 1].end_seconds
-        return segment.end_seconds
+                last = segment.words[i + len(keyword_words) - 1]
+                return word.start_seconds, last.end_seconds
+        return segment.start_seconds, segment.end_seconds
 
     def _invert_cuts(
         self,
