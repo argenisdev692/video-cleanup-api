@@ -244,7 +244,11 @@ class VideoExportService:
         )
 
     def _find_pause_cuts(self, segments: list[TranscriptSegment], pause_keywords: list[str]) -> list[tuple[float, float]]:
+        import logging
+        logger = logging.getLogger(__name__)
+        
         if not segments:
+            logger.warning(f"_find_pause_cuts: No segments provided")
             return []
 
         # Deduplicate after normalization (e.g. 'PAUSA ACA' and 'PAUSA ACÁ' collapse to same)
@@ -253,6 +257,10 @@ class VideoExportService:
             key=lambda kw: len(kw.split()),
             reverse=True,
         )
+        
+        logger.info(f"_find_pause_cuts: Input keywords: {pause_keywords}")
+        logger.info(f"_find_pause_cuts: Normalized sorted keywords: {keywords_sorted}")
+        logger.info(f"_find_pause_cuts: Number of segments: {len(segments)}")
 
         # Flatten every word from every segment into a single list so that keywords
         # split across two Whisper segment boundaries (common with small models) are
@@ -262,6 +270,12 @@ class VideoExportService:
             for seg_idx, seg in enumerate(segments)
             for w in seg.words
         ]
+        
+        logger.info(f"_find_pause_cuts: Total words in flat list: {len(flat)}")
+        if flat:
+            # Log first 20 words for debugging
+            sample_words = [(self._normalize(w.text), w.start_seconds, w.end_seconds) for w, _ in flat[:20]]
+            logger.info(f"_find_pause_cuts: Sample words (first 20): {sample_words}")
 
         clean = lambda t: self._normalize(t.strip(" .,;:!?\u00a1\u00bf\"'()[]{}"))
         cuts: list[tuple[float, float]] = []
@@ -275,6 +289,8 @@ class VideoExportService:
             for kw in keywords_sorted:
                 kw_parts = kw.split()
                 n = len(kw_parts)
+                logger.info(f"_find_pause_cuts: Scanning for keyword '{kw}' ({n} parts)")
+                matches_found = 0
                 for i in range(len(flat) - n + 1):
                     if i in consumed_starts:
                         continue
@@ -292,18 +308,25 @@ class VideoExportService:
                     else:
                         cut_start = segments[seg_idx - 1].start_seconds
                     cuts.append((cut_start, kw_end))
+                    matches_found += 1
+                    logger.info(f"_find_pause_cuts: Found match for '{kw}' at position {i}, cut from {cut_start:.3f} to {kw_end:.3f}")
+                logger.info(f"_find_pause_cuts: Keyword '{kw}' found {matches_found} matches")
 
         if not cuts:
+            logger.warning(f"_find_pause_cuts: Word-level scan found no cuts, trying fallback segment-level match")
             # Fallback: segment-level substring match.
             # Runs when there are no word timestamps OR when the word-level scan found nothing
             # (e.g. because the tiny model produced word tokens that differ from the keyword).
             for seg_idx, segment in enumerate(segments):
                 normalized = self._normalize(segment.text)
+                logger.debug(f"_find_pause_cuts: Segment {seg_idx} text: '{segment.text}' -> normalized: '{normalized}'")
                 matched = next((kw for kw in keywords_sorted if kw in normalized), None)
                 if matched is not None:
                     cut_start = segments[seg_idx - 1].start_seconds if seg_idx > 0 else segment.start_seconds
                     cuts.append((cut_start, segment.end_seconds))
+                    logger.info(f"_find_pause_cuts: Fallback found '{matched}' in segment {seg_idx}, cut from {cut_start:.3f} to {segment.end_seconds:.3f}")
 
+        logger.info(f"_find_pause_cuts: Total cuts found: {len(cuts)}")
         return cuts
 
     def _find_pause_bounds(self, segment: TranscriptSegment, keyword: str) -> tuple[float, float]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -12,6 +13,11 @@ from app.jobs import enqueue_job, get_job_state
 from app.schemas import AnalysisRequest, AnalysisResponse, ExportRequest, ExportResponse, HealthResponse, MergeExportRequest, MergeExportResponse
 from app.service import TutorialCleanupAnalysisService
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 analysis_service = TutorialCleanupAnalysisService()
