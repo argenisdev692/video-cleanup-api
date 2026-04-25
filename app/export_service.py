@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import re
 import unicodedata
 from pathlib import Path
 from typing import Any
@@ -277,7 +278,7 @@ class VideoExportService:
             sample_words = [(self._normalize(w.text), w.start_seconds, w.end_seconds) for w, _ in flat[:20]]
             logger.info(f"_find_pause_cuts: Sample words (first 20): {sample_words}")
 
-        clean = lambda t: self._normalize(t.strip(" .,;:!?\u00a1\u00bf\"'()[]{}"))
+        clean = self._clean_transcript_token
         cuts: list[tuple[float, float]] = []
 
         if flat:
@@ -294,7 +295,7 @@ class VideoExportService:
                 for i in range(len(flat) - n + 1):
                     if i in consumed_starts:
                         continue
-                    if not all(clean(flat[i + j][0].text) == kw_parts[j] for j in range(n)):
+                    if not self._keyword_matches_at(flat, i, kw_parts):
                         continue
                     consumed_starts.add(i)
                     kw_end = flat[i + n - 1][0].end_seconds
@@ -334,9 +335,9 @@ class VideoExportService:
             # Runs when there are no word timestamps OR when the word-level scan found nothing
             # (e.g. because the tiny model produced word tokens that differ from the keyword).
             for seg_idx, segment in enumerate(segments):
-                normalized = self._normalize(segment.text)
+                normalized = ' '.join(clean(part) for part in segment.text.split())
                 logger.debug(f"_find_pause_cuts: Segment {seg_idx} text: '{segment.text}' -> normalized: '{normalized}'")
-                matched = next((kw for kw in keywords_sorted if kw in normalized), None)
+                matched = next((kw for kw in keywords_sorted if kw in normalized or kw.replace(' ', '') in normalized.replace(' ', '')), None)
                 if matched is not None:
                     cut_start = segments[seg_idx - 1].start_seconds if seg_idx > 0 else segment.start_seconds
                     cuts.append((cut_start, segment.end_seconds))
@@ -344,6 +345,33 @@ class VideoExportService:
 
         logger.info(f"_find_pause_cuts: Total cuts found: {len(cuts)}")
         return cuts
+
+    @staticmethod
+    def _clean_transcript_token(text: str) -> str:
+        return re.sub(r'[^0-9a-z]+', '', VideoExportService._normalize(text))
+
+    @staticmethod
+    def _looks_like_pause_marker(token: str) -> bool:
+        return token in {'pausa', 'pauza', 'pauso', 'pausas', 'pausar', 'pause', 'pousa'} or (
+            (token.startswith('paus') or token.startswith('pauz')) and len(token) <= 7
+        )
+
+    def _keyword_part_matches(self, token: str, keyword_part: str) -> bool:
+        if token == keyword_part:
+            return True
+        if keyword_part in {'pausa', 'pauza'}:
+            return self._looks_like_pause_marker(token)
+        return False
+
+    def _keyword_matches_at(self, flat: list[tuple[Any, int]], start: int, keyword_parts: list[str]) -> bool:
+        tokens = [
+            self._clean_transcript_token(flat[start + j][0].text)
+            for j in range(len(keyword_parts))
+        ]
+        return all(
+            self._keyword_part_matches(tokens[j], keyword_parts[j])
+            for j in range(len(keyword_parts))
+        )
 
     def _find_pause_bounds(self, segment: TranscriptSegment, keyword: str) -> tuple[float, float]:
         """Return (start, end) of the pause keyword inside the segment, using word timestamps."""
