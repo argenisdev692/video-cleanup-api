@@ -265,20 +265,23 @@ class VideoExportService:
 
         clean = lambda t: self._normalize(t.strip(" .,;:!?\u00a1\u00bf\"'()[]{}"))
         cuts: list[tuple[float, float]] = []
-        consumed: set[float] = set()  # de-duplicate by keyword-end timestamp
 
         if flat:
-            # Word-level global scan — correctly detects keywords that span segment boundaries
+            # Word-level global scan — detects keywords that span Whisper segment boundaries.
+            # consumed_starts tracks the flat-list index of each matched keyword's first word so
+            # that a shorter keyword (e.g. 'pausa') cannot re-match at the same position already
+            # claimed by a longer one (e.g. 'pausa aca').
+            consumed_starts: set[int] = set()
             for kw in keywords_sorted:
                 kw_parts = kw.split()
                 n = len(kw_parts)
                 for i in range(len(flat) - n + 1):
+                    if i in consumed_starts:
+                        continue
                     if not all(clean(flat[i + j][0].text) == kw_parts[j] for j in range(n)):
                         continue
+                    consumed_starts.add(i)
                     kw_end = flat[i + n - 1][0].end_seconds
-                    if kw_end in consumed:
-                        continue
-                    consumed.add(kw_end)
                     seg_idx = flat[i][1]
                     kw_start = flat[i][0].start_seconds
                     seg_start = segments[seg_idx].start_seconds
@@ -289,8 +292,11 @@ class VideoExportService:
                     else:
                         cut_start = segments[seg_idx - 1].start_seconds
                     cuts.append((cut_start, kw_end))
-        else:
-            # Fallback: no word-level timestamps — match against full segment text
+
+        if not cuts:
+            # Fallback: segment-level substring match.
+            # Runs when there are no word timestamps OR when the word-level scan found nothing
+            # (e.g. because the tiny model produced word tokens that differ from the keyword).
             for seg_idx, segment in enumerate(segments):
                 normalized = self._normalize(segment.text)
                 matched = next((kw for kw in keywords_sorted if kw in normalized), None)
