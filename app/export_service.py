@@ -56,6 +56,9 @@ class VideoExportService:
             segments, transcription_diagnostics = self.transcription_service.transcribe(prepared_audio, language=request.language)
             transcription_diagnostics['transcription_text'] = ' | '.join(s.text.strip() for s in segments)[:600]
             pause_cuts = self._find_pause_cuts(segments, request.pause_keywords)
+            transcription_diagnostics['pause_cut_ranges'] = [
+                [round(s, 3), round(e, 3)] for s, e in pause_cuts
+            ]
 
         cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps] + pause_cuts
         keep_ranges = self._invert_cuts(cut_ranges, prepared_audio.duration_seconds)
@@ -241,28 +244,60 @@ class VideoExportService:
         )
 
     def _find_pause_cuts(self, segments: list[TranscriptSegment], pause_keywords: list[str]) -> list[tuple[float, float]]:
-        cuts: list[tuple[float, float]] = []
+        if not segments:
+            return []
+
         # Deduplicate after normalization (e.g. 'PAUSA ACA' and 'PAUSA ACÁ' collapse to same)
         keywords_sorted = sorted(
             {self._normalize(kw) for kw in pause_keywords if kw.strip()},
             key=lambda kw: len(kw.split()),
             reverse=True,
         )
-        previous: TranscriptSegment | None = None
-        for segment in segments:
-            normalized = self._normalize(segment.text)
-            matched = next((kw for kw in keywords_sorted if kw in normalized), None)
-            if matched is not None:
-                pause_start, pause_end = self._find_pause_bounds(segment, matched)
-                # If the pause keyword is not at the very start of this segment,
-                # the bad take content is INSIDE this segment — cut from segment start.
-                # Otherwise the bad take was in the previous segment.
-                if pause_start > segment.start_seconds + 0.5 or previous is None:
-                    cut_start = segment.start_seconds
-                else:
-                    cut_start = previous.start_seconds
-                cuts.append((cut_start, pause_end))
-            previous = segment
+
+        # Flatten every word from every segment into a single list so that keywords
+        # split across two Whisper segment boundaries (common with small models) are
+        # still detected via the global word sequence.
+        flat: list[tuple[TranscriptWord, int]] = [
+            (w, seg_idx)
+            for seg_idx, seg in enumerate(segments)
+            for w in seg.words
+        ]
+
+        clean = lambda t: self._normalize(t.strip(" .,;:!?\u00a1\u00bf\"'()[]{}"))
+        cuts: list[tuple[float, float]] = []
+        consumed: set[float] = set()  # de-duplicate by keyword-end timestamp
+
+        if flat:
+            # Word-level global scan — correctly detects keywords that span segment boundaries
+            for kw in keywords_sorted:
+                kw_parts = kw.split()
+                n = len(kw_parts)
+                for i in range(len(flat) - n + 1):
+                    if not all(clean(flat[i + j][0].text) == kw_parts[j] for j in range(n)):
+                        continue
+                    kw_end = flat[i + n - 1][0].end_seconds
+                    if kw_end in consumed:
+                        continue
+                    consumed.add(kw_end)
+                    seg_idx = flat[i][1]
+                    kw_start = flat[i][0].start_seconds
+                    seg_start = segments[seg_idx].start_seconds
+                    # If the keyword begins well into its segment the bad take is also
+                    # inside that segment; otherwise look one segment back.
+                    if kw_start > seg_start + 0.5 or seg_idx == 0:
+                        cut_start = seg_start
+                    else:
+                        cut_start = segments[seg_idx - 1].start_seconds
+                    cuts.append((cut_start, kw_end))
+        else:
+            # Fallback: no word-level timestamps — match against full segment text
+            for seg_idx, segment in enumerate(segments):
+                normalized = self._normalize(segment.text)
+                matched = next((kw for kw in keywords_sorted if kw in normalized), None)
+                if matched is not None:
+                    cut_start = segments[seg_idx - 1].start_seconds if seg_idx > 0 else segment.start_seconds
+                    cuts.append((cut_start, segment.end_seconds))
+
         return cuts
 
     def _find_pause_bounds(self, segment: TranscriptSegment, keyword: str) -> tuple[float, float]:
