@@ -301,12 +301,23 @@ class VideoExportService:
                     seg_idx = flat[i][1]
                     kw_start = flat[i][0].start_seconds
                     seg_start = segments[seg_idx].start_seconds
+                    seg_text = segments[seg_idx].text.strip()
+                    
+                    # Log segment context
+                    if seg_idx > 0:
+                        prev_seg_text = segments[seg_idx - 1].text.strip()
+                        logger.info(f"_find_pause_cuts: Previous segment {seg_idx - 1}: '{prev_seg_text}'")
+                    logger.info(f"_find_pause_cuts: Current segment {seg_idx}: '{seg_text}'")
+                    logger.info(f"_find_pause_cuts: Keyword '{kw}' starts at {kw_start:.3f}, segment starts at {seg_start:.3f}, offset = {kw_start - seg_start:.3f}s")
+                    
                     # If the keyword begins well into its segment the bad take is also
                     # inside that segment; otherwise look one segment back.
                     if kw_start > seg_start + 0.5 or seg_idx == 0:
                         cut_start = seg_start
+                        logger.info(f"_find_pause_cuts: Cutting from START of current segment ({cut_start:.3f}) - keyword is well into segment")
                     else:
                         cut_start = segments[seg_idx - 1].start_seconds
+                        logger.info(f"_find_pause_cuts: Cutting from START of PREVIOUS segment ({cut_start:.3f}) - keyword is at beginning of current segment")
                     cuts.append((cut_start, kw_end))
                     matches_found += 1
                     logger.info(f"_find_pause_cuts: Found match for '{kw}' at position {i}, cut from {cut_start:.3f} to {kw_end:.3f}")
