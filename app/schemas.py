@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.config import settings
+
 
 class SourcePayload(BaseModel):
     video_path: str | None = None
@@ -142,6 +144,8 @@ class ExportRequest(BaseModel):
         'PAUSA',
         'PAUZA',
     ])
+    detect_fillers: bool = True
+    filler_terms: list[str] = Field(default_factory=lambda: list(settings.filler_terms))
     language: str = 'es'
 
     @model_validator(mode='after')

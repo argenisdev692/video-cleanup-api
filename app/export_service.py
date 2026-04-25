@@ -52,16 +52,23 @@ class VideoExportService:
         )
 
         pause_cuts: list[tuple[float, float]] = []
+        filler_cuts: list[tuple[float, float]] = []
         transcription_diagnostics: dict[str, Any] = {}
-        if request.pause_keywords:
+        if request.pause_keywords or request.detect_fillers:
             segments, transcription_diagnostics = self.transcription_service.transcribe(prepared_audio, language=request.language)
             transcription_diagnostics['transcription_text'] = ' | '.join(s.text.strip() for s in segments)[:600]
-            pause_cuts = self._find_pause_cuts(segments, request.pause_keywords)
+            if request.pause_keywords:
+                pause_cuts = self._find_pause_cuts(segments, request.pause_keywords)
             transcription_diagnostics['pause_cut_ranges'] = [
                 [round(s, 3), round(e, 3)] for s, e in pause_cuts
             ]
+            if request.detect_fillers:
+                filler_cuts = self._find_filler_cuts(segments, request.filler_terms)
+            transcription_diagnostics['filler_cut_ranges'] = [
+                [round(s, 3), round(e, 3)] for s, e in filler_cuts
+            ]
 
-        cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps] + pause_cuts
+        cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps] + pause_cuts + filler_cuts
         keep_ranges = self._invert_cuts(cut_ranges, prepared_audio.duration_seconds)
 
         if not keep_ranges:
@@ -91,6 +98,7 @@ class VideoExportService:
             'original_duration_seconds': round(prepared_audio.duration_seconds, 3),
             'silence_cuts': len(silence_gaps),
             'pause_cuts': len(pause_cuts),
+            'filler_cuts': len(filler_cuts),
             'keep_segments': len(keep_ranges),
             'output_path': str(output_path),
             **vad_diagnostics,
@@ -345,6 +353,75 @@ class VideoExportService:
 
         logger.info(f"_find_pause_cuts: Total cuts found: {len(cuts)}")
         return cuts
+
+    def _find_filler_cuts(self, segments: list[TranscriptSegment], filler_terms: list[str]) -> list[tuple[float, float]]:
+        import logging
+        logger = logging.getLogger(__name__)
+
+        fillers = {
+            self._clean_transcript_token(term)
+            for term in filler_terms
+            if term.strip()
+        }
+        cuts: list[tuple[float, float]] = []
+
+        for segment in segments:
+            if segment.words:
+                for word in segment.words:
+                    token = self._clean_transcript_token(word.text)
+                    if not self._is_filler_token(token, fillers):
+                        continue
+                    cut_start, cut_end = self._expand_cut_to_min_duration(
+                        max(segment.start_seconds, word.start_seconds - 0.05),
+                        min(segment.end_seconds, word.end_seconds + 0.05),
+                        segment.start_seconds,
+                        segment.end_seconds,
+                    )
+                    cuts.append((cut_start, cut_end))
+                    logger.info(f"_find_filler_cuts: Found filler '{token}', cut from {cut_start:.3f} to {cut_end:.3f}")
+                continue
+
+            normalized_words = [self._clean_transcript_token(part) for part in segment.text.split()]
+            if normalized_words and self._is_filler_token(normalized_words[0], fillers):
+                cut_end = min(segment.end_seconds, segment.start_seconds + max(0.35, settings.render_min_segment_seconds))
+                cuts.append((segment.start_seconds, cut_end))
+                logger.info(f"_find_filler_cuts: Found leading filler '{normalized_words[0]}', cut from {segment.start_seconds:.3f} to {cut_end:.3f}")
+
+        logger.info(f"_find_filler_cuts: Total cuts found: {len(cuts)}")
+        return cuts
+
+    @staticmethod
+    def _is_filler_token(token: str, fillers: set[str]) -> bool:
+        if token in fillers:
+            return True
+        return any(
+            re.fullmatch(pattern, token) is not None
+            for pattern in (r'e+h+', r'e+m+', r'h?m{2,}', r'u+h+', r'u+m+')
+        )
+
+    @staticmethod
+    def _expand_cut_to_min_duration(
+        start: float,
+        end: float,
+        minimum_start: float,
+        maximum_end: float,
+    ) -> tuple[float, float]:
+        minimum_duration = settings.render_min_segment_seconds
+        duration = end - start
+        if duration >= minimum_duration:
+            return start, end
+
+        missing = minimum_duration - duration
+        start = max(minimum_start, start - missing / 2)
+        end = min(maximum_end, end + missing / 2)
+
+        if end - start < minimum_duration:
+            if start <= minimum_start:
+                end = min(maximum_end, start + minimum_duration)
+            elif end >= maximum_end:
+                start = max(minimum_start, end - minimum_duration)
+
+        return start, end
 
     @staticmethod
     def _clean_transcript_token(text: str) -> str:

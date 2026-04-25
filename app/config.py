@@ -99,8 +99,11 @@ class Settings(BaseSettings):
     vad_speech_pad_ms: int = 120
     filler_terms: tuple[str, ...] = (
         'eh',
+        'em',
         'emm',
+        'mm',
         'mmm',
+        'hmm',
         'este',
         'ehh',
         'uh',
