@@ -353,6 +353,13 @@ class VideoExportService:
         cut_ranges: list[tuple[float, float]],
         duration_seconds: float,
     ) -> list[tuple[float, float]]:
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f"_invert_cuts: Input cut_ranges: {cut_ranges}")
+        logger.info(f"_invert_cuts: duration_seconds: {duration_seconds}")
+        logger.info(f"_invert_cuts: render_min_segment_seconds: {settings.render_min_segment_seconds}")
+        
         normalized = sorted(
             [
                 (max(0.0, s), min(duration_seconds, e))
@@ -361,14 +368,21 @@ class VideoExportService:
             ],
             key=lambda x: x[0],
         )
+        
+        logger.info(f"_invert_cuts: After filtering and sorting: {normalized}")
+        
         keep: list[tuple[float, float]] = []
         cursor = 0.0
         for s, e in normalized:
             if s - cursor >= settings.render_min_segment_seconds:
                 keep.append((cursor, s))
+                logger.info(f"_invert_cuts: Keeping segment ({cursor:.3f}, {s:.3f})")
             cursor = max(cursor, e)
         if duration_seconds - cursor >= settings.render_min_segment_seconds:
             keep.append((cursor, duration_seconds))
+            logger.info(f"_invert_cuts: Keeping final segment ({cursor:.3f}, {duration_seconds:.3f})")
+        
+        logger.info(f"_invert_cuts: Final keep_ranges: {keep}")
         return keep
 
 
