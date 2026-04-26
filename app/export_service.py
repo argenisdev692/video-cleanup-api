@@ -54,8 +54,15 @@ class VideoExportService:
         pause_cuts: list[tuple[float, float]] = []
         filler_cuts: list[tuple[float, float]] = []
         word_gap_cuts: list[tuple[float, float]] = []
+        stutter_cuts: list[tuple[float, float]] = []
         transcription_diagnostics: dict[str, Any] = {}
-        if request.pause_keywords or request.detect_fillers or request.compact_word_gaps:
+        needs_transcription = (
+            bool(request.pause_keywords)
+            or request.detect_fillers
+            or request.compact_word_gaps
+            or request.detect_stutters
+        )
+        if needs_transcription:
             segments, transcription_diagnostics = self.transcription_service.transcribe(prepared_audio, language=request.language)
             transcription_diagnostics['transcription_text'] = ' | '.join(s.text.strip() for s in segments)[:600]
             if request.pause_keywords:
@@ -78,8 +85,23 @@ class VideoExportService:
             transcription_diagnostics['word_gap_cut_ranges'] = [
                 [round(s, 3), round(e, 3)] for s, e in word_gap_cuts
             ]
+            if request.detect_stutters:
+                stutter_cuts = self._find_stutter_cuts(
+                    segments,
+                    max_gap_seconds=request.stutter_max_gap_seconds,
+                    max_token_chars=request.stutter_max_token_chars,
+                )
+            transcription_diagnostics['stutter_cut_ranges'] = [
+                [round(s, 3), round(e, 3)] for s, e in stutter_cuts
+            ]
 
-        cut_ranges = [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps] + pause_cuts + filler_cuts + word_gap_cuts
+        cut_ranges = (
+            [(gap.start_seconds, gap.end_seconds) for gap in silence_gaps]
+            + pause_cuts
+            + filler_cuts
+            + word_gap_cuts
+            + stutter_cuts
+        )
         keep_ranges = self._invert_cuts(cut_ranges, prepared_audio.duration_seconds)
 
         if not keep_ranges:
@@ -111,6 +133,7 @@ class VideoExportService:
             'pause_cuts': len(pause_cuts),
             'filler_cuts': len(filler_cuts),
             'word_gap_cuts': len(word_gap_cuts),
+            'stutter_cuts': len(stutter_cuts),
             'keep_segments': len(keep_ranges),
             'output_path': str(output_path),
             **vad_diagnostics,
@@ -449,6 +472,119 @@ class VideoExportService:
 
         logger.info(f"_find_word_gap_cuts: Total cuts found: {len(cuts)}")
         return cuts
+
+    def _find_stutter_cuts(
+        self,
+        segments: list[TranscriptSegment],
+        *,
+        max_gap_seconds: float,
+        max_token_chars: int,
+    ) -> list[tuple[float, float]]:
+        """Detect stuttered word starts (e.g. 'y y y vamos', 'v-v-vamos', 'es es esto')
+        and remove all but the LAST occurrence so the intended word stays.
+
+        Conservative rules — only cut when:
+          - 2+ consecutive words have the SAME normalized token AND tight timing
+            (gap between them <= max_gap_seconds), OR
+          - a short stuttered token (<= 3 chars) is followed by a longer word that
+            starts with the same prefix and shares tight timing
+            (e.g. 'va', 'vamos' → cut 'va').
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        words = [
+            word
+            for segment in segments
+            for word in segment.words
+            if self._clean_transcript_token(word.text)
+        ]
+        if not words:
+            logger.info("_find_stutter_cuts: no word timestamps available, skipping")
+            return []
+
+        tokens = [self._clean_transcript_token(word.text) for word in words]
+        cuts: list[tuple[float, float]] = []
+        n = len(tokens)
+        index = 0
+        while index < n:
+            token = tokens[index]
+            if not token or len(token) > max_token_chars:
+                index += 1
+                continue
+
+            run_end = index
+            while run_end + 1 < n:
+                gap = words[run_end + 1].start_seconds - words[run_end].end_seconds
+                if gap > max_gap_seconds or tokens[run_end + 1] != token:
+                    break
+                run_end += 1
+
+            run_size = run_end - index + 1
+            if run_size >= 2:
+                # Cut every repeated occurrence except the LAST in the run.
+                for k in range(index, run_end):
+                    cuts.append(self._stutter_cut_range(words[k]))
+                logger.info(
+                    f"_find_stutter_cuts: repeat run of '{token}' x{run_size} "
+                    f"between {words[index].start_seconds:.3f}-{words[run_end].end_seconds:.3f}, "
+                    f"cut {run_size - 1} occurrences"
+                )
+
+                # Prefix-stutter add-on: 'v v vamos' / 'es es esto' → also cut the
+                # last short repeat because the next word completes it.
+                next_idx = run_end + 1
+                if (
+                    len(token) <= 3
+                    and next_idx < n
+                    and tokens[next_idx] != token
+                    and len(tokens[next_idx]) > len(token)
+                    and tokens[next_idx].startswith(token)
+                    and (words[next_idx].start_seconds - words[run_end].end_seconds) <= max_gap_seconds
+                ):
+                    cuts.append(self._stutter_cut_range(words[run_end]))
+                    logger.info(
+                        f"_find_stutter_cuts: prefix-stutter '{token}' before "
+                        f"'{tokens[next_idx]}' at {words[run_end].start_seconds:.3f}, "
+                        f"cut last repeat too"
+                    )
+
+                index = run_end + 1
+                continue
+
+            # Single short token followed by a longer word that starts with it.
+            next_idx = index + 1
+            if (
+                len(token) <= 3
+                and next_idx < n
+                and tokens[next_idx]
+                and tokens[next_idx] != token
+                and len(tokens[next_idx]) > len(token)
+                and tokens[next_idx].startswith(token)
+                and (words[next_idx].start_seconds - words[index].end_seconds) <= max_gap_seconds
+            ):
+                cuts.append(self._stutter_cut_range(words[index]))
+                logger.info(
+                    f"_find_stutter_cuts: prefix-stutter '{token}' before "
+                    f"'{tokens[next_idx]}' at {words[index].start_seconds:.3f}, cut '{token}'"
+                )
+                index = next_idx
+                continue
+
+            index += 1
+
+        logger.info(f"_find_stutter_cuts: Total cuts found: {len(cuts)}")
+        return cuts
+
+    def _stutter_cut_range(self, word: Any) -> tuple[float, float]:
+        cut_start = max(0.0, word.start_seconds - 0.02)
+        cut_end = word.end_seconds + 0.05
+        # Inflate to render_min_segment_seconds so _invert_cuts does not drop
+        # the very short cut (single-syllable stutters are often < 0.25s).
+        if cut_end - cut_start < settings.render_min_segment_seconds:
+            missing = settings.render_min_segment_seconds - (cut_end - cut_start)
+            cut_end += missing
+        return cut_start, cut_end
 
     @staticmethod
     def _is_filler_token(token: str, fillers: set[str]) -> bool:
