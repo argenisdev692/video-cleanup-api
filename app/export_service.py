@@ -355,13 +355,22 @@ class VideoExportService:
                     logger.info(f"_find_pause_cuts: Keyword '{kw}' starts at {kw_start:.3f}, segment starts at {seg_start:.3f}, offset = {kw_start - seg_start:.3f}s")
                     
                     # If the keyword begins well into its segment the bad take is also
-                    # inside that segment; otherwise look one segment back.
+                    # inside that segment; otherwise look one segment back — UNLESS the
+                    # previous segment ended with strong punctuation (. ! ?), which means
+                    # the user finished a clean thought before saying "pausa". In that
+                    # case the previous segment is good content and must be preserved.
                     if kw_start > seg_start + 0.5 or seg_idx == 0:
                         cut_start = seg_start
                         logger.info(f"_find_pause_cuts: Cutting from START of current segment ({cut_start:.3f}) - keyword is well into segment")
                     else:
-                        cut_start = segments[seg_idx - 1].start_seconds
-                        logger.info(f"_find_pause_cuts: Cutting from START of PREVIOUS segment ({cut_start:.3f}) - keyword is at beginning of current segment")
+                        prev_text = segments[seg_idx - 1].text.strip()
+                        prev_ends_clean = prev_text.endswith(('.', '!', '?', '…'))
+                        if prev_ends_clean:
+                            cut_start = seg_start
+                            logger.info(f"_find_pause_cuts: Previous segment ends with punctuation ('{prev_text[-30:]}'), keeping it. Cutting from current segment start ({cut_start:.3f})")
+                        else:
+                            cut_start = segments[seg_idx - 1].start_seconds
+                            logger.info(f"_find_pause_cuts: Cutting from START of PREVIOUS segment ({cut_start:.3f}) - keyword is at beginning of current segment and previous didn't end cleanly")
                     
                     # IMPORTANT: Cut only to the END of the keyword, not the end of the segment.
                     # This preserves any content that comes AFTER the keyword in the same segment.
@@ -552,25 +561,13 @@ class VideoExportService:
                 index = run_end + 1
                 continue
 
-            # Single short token followed by a longer word that starts with it.
-            next_idx = index + 1
-            if (
-                len(token) <= 3
-                and next_idx < n
-                and tokens[next_idx]
-                and tokens[next_idx] != token
-                and len(tokens[next_idx]) > len(token)
-                and tokens[next_idx].startswith(token)
-                and (words[next_idx].start_seconds - words[index].end_seconds) <= max_gap_seconds
-            ):
-                cuts.append(self._stutter_cut_range(words[index]))
-                logger.info(
-                    f"_find_stutter_cuts: prefix-stutter '{token}' before "
-                    f"'{tokens[next_idx]}' at {words[index].start_seconds:.3f}, cut '{token}'"
-                )
-                index = next_idx
-                continue
-
+            # NOTE: We intentionally do NOT detect single-token prefix stutters
+            # (e.g. 'v' before 'vamos' WITHOUT a prior repetition). Spanish has too
+            # many short function words that are also prefixes of common content
+            # words: 'de' before 'decisión', 'con' before 'conectores',
+            # 'la' before 'lámpara', 'es' before 'esto', etc. Triggering on those
+            # would produce false positives. Real stutters almost always REPEAT,
+            # which is handled by the run-detection branch above.
             index += 1
 
         logger.info(f"_find_stutter_cuts: Total cuts found: {len(cuts)}")
