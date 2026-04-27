@@ -148,10 +148,14 @@ class ExportRequest(BaseModel):
     filler_terms: list[str] = Field(default_factory=lambda: list(settings.filler_terms))
     compact_word_gaps: bool = True
     word_gap_threshold_seconds: float = Field(default=0.55, ge=0.2, le=2.0)
-    word_gap_trim_to_seconds: float = Field(default=0.28, ge=0.05, le=0.6)
+    word_gap_trim_to_seconds: float = Field(default=0.30, ge=0.05, le=0.6)
+    mid_phrase_gap_threshold_seconds: float = Field(default=0.30, ge=0.1, le=1.5)
+    mid_phrase_trim_to_seconds: float = Field(default=0.15, ge=0.05, le=0.5)
     detect_stutters: bool = True
     stutter_max_gap_seconds: float = Field(default=0.4, ge=0.05, le=1.5)
     stutter_max_token_chars: int = Field(default=5, ge=1, le=10)
+    pause_backtrack_silence_threshold_seconds: float = Field(default=0.4, ge=0.1, le=2.0)
+    pause_backtrack_max_seconds: float = Field(default=8.0, ge=1.0, le=30.0)
     cleanup_intermediates: bool = True
     cleanup_remote_inputs: bool = True
     language: str = 'es'

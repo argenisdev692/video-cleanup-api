@@ -161,7 +161,12 @@ class VideoExportService:
             segments, transcription_diagnostics = self.transcription_service.transcribe(prepared_audio, language=request.language)
             transcription_diagnostics['transcription_text'] = ' | '.join(s.text.strip() for s in segments)[:600]
             if request.pause_keywords:
-                pause_cuts = self._find_pause_cuts(segments, request.pause_keywords)
+                pause_cuts = self._find_pause_cuts(
+                    segments,
+                    request.pause_keywords,
+                    backtrack_silence_threshold=request.pause_backtrack_silence_threshold_seconds,
+                    backtrack_max_seconds=request.pause_backtrack_max_seconds,
+                )
             transcription_diagnostics['pause_cut_ranges'] = [
                 [round(s, 3), round(e, 3)] for s, e in pause_cuts
             ]
@@ -176,6 +181,8 @@ class VideoExportService:
                     gap_threshold_seconds=request.word_gap_threshold_seconds,
                     trim_to_seconds=request.word_gap_trim_to_seconds,
                     long_silence_threshold_seconds=request.silence_threshold_seconds,
+                    mid_phrase_gap_threshold_seconds=request.mid_phrase_gap_threshold_seconds,
+                    mid_phrase_trim_to_seconds=request.mid_phrase_trim_to_seconds,
                 )
             transcription_diagnostics['word_gap_cut_ranges'] = [
                 [round(s, 3), round(e, 3)] for s, e in word_gap_cuts
@@ -391,9 +398,18 @@ class VideoExportService:
             if unicodedata.category(c) != 'Mn'
         )
 
-    def _find_pause_cuts(self, segments: list[TranscriptSegment], pause_keywords: list[str]) -> list[tuple[float, float]]:
+    def _find_pause_cuts(
+        self,
+        segments: list[TranscriptSegment],
+        pause_keywords: list[str],
+        *,
+        backtrack_silence_threshold: float = 0.4,
+        backtrack_max_seconds: float = 8.0,
+    ) -> list[tuple[float, float]]:
         import logging
         logger = logging.getLogger(__name__)
+        pause_backtrack_silence_threshold = backtrack_silence_threshold
+        pause_backtrack_max_seconds = backtrack_max_seconds
         
         if not segments:
             logger.warning(f"_find_pause_cuts: No segments provided")
@@ -458,23 +474,40 @@ class VideoExportService:
                     logger.info(f"_find_pause_cuts: Current segment {seg_idx}: '{seg_text}'")
                     logger.info(f"_find_pause_cuts: Keyword '{kw}' starts at {kw_start:.3f}, segment starts at {seg_start:.3f}, offset = {kw_start - seg_start:.3f}s")
                     
-                    # If the keyword begins well into its segment the bad take is also
-                    # inside that segment; otherwise look one segment back — UNLESS the
-                    # previous segment ended with strong punctuation (. ! ?), which means
-                    # the user finished a clean thought before saying "pausa". In that
-                    # case the previous segment is good content and must be preserved.
-                    if kw_start > seg_start + 0.5 or seg_idx == 0:
-                        cut_start = seg_start
-                        logger.info(f"_find_pause_cuts: Cutting from START of current segment ({cut_start:.3f}) - keyword is well into segment")
-                    else:
-                        prev_text = segments[seg_idx - 1].text.strip()
-                        prev_ends_clean = prev_text.endswith(('.', '!', '?', '…'))
-                        if prev_ends_clean:
-                            cut_start = seg_start
-                            logger.info(f"_find_pause_cuts: Previous segment ends with punctuation ('{prev_text[-30:]}'), keeping it. Cutting from current segment start ({cut_start:.3f})")
-                        else:
-                            cut_start = segments[seg_idx - 1].start_seconds
-                            logger.info(f"_find_pause_cuts: Cutting from START of PREVIOUS segment ({cut_start:.3f}) - keyword is at beginning of current segment and previous didn't end cleanly")
+                    # Walk backwards word-by-word from the keyword until we hit a
+                    # natural silence (gap >= silence_threshold) or run out of words.
+                    # That silence marks where the bad take started, because the user
+                    # paused, then dictated the bad take, then said "pausa". This is
+                    # how professional editors (Descript, Premiere) implement
+                    # delete-cues — silence-aware backtracking is more reliable than
+                    # Whisper's segment punctuation guesses.
+                    silence_threshold = pause_backtrack_silence_threshold
+                    max_backtrack_seconds = pause_backtrack_max_seconds
+                    cut_start = flat[i][0].start_seconds
+                    backtrack_origin = cut_start
+                    walker = i - 1
+                    while walker >= 0:
+                        cur_word = flat[walker][0]
+                        next_word = flat[walker + 1][0]
+                        gap = next_word.start_seconds - cur_word.end_seconds
+                        if gap >= silence_threshold:
+                            logger.info(
+                                f"_find_pause_cuts: backtrack stopped at silence {gap:.3f}s "
+                                f"between '{cur_word.text}' ({cur_word.end_seconds:.3f}) and "
+                                f"'{next_word.text}' ({next_word.start_seconds:.3f})"
+                            )
+                            break
+                        if backtrack_origin - cur_word.start_seconds > max_backtrack_seconds:
+                            logger.info(
+                                f"_find_pause_cuts: backtrack hit max window {max_backtrack_seconds}s, "
+                                f"stopping at '{cur_word.text}' ({cur_word.start_seconds:.3f})"
+                            )
+                            break
+                        cut_start = cur_word.start_seconds
+                        walker -= 1
+                    if walker < 0:
+                        logger.info(f"_find_pause_cuts: backtrack reached start of audio, cut_start={cut_start:.3f}")
+                    logger.info(f"_find_pause_cuts: Final cut_start={cut_start:.3f} (keyword at {kw_start:.3f}, walked back {kw_start - cut_start:.3f}s)")
                     
                     # IMPORTANT: Cut only to the END of the keyword, not the end of the segment.
                     # This preserves any content that comes AFTER the keyword in the same segment.
@@ -545,7 +578,21 @@ class VideoExportService:
         gap_threshold_seconds: float,
         trim_to_seconds: float,
         long_silence_threshold_seconds: float,
+        mid_phrase_gap_threshold_seconds: float = 0.30,
+        mid_phrase_trim_to_seconds: float = 0.15,
     ) -> list[tuple[float, float]]:
+        """Compress unnatural word gaps. Two-tier strategy:
+
+          - Between sentences (previous word ends with .!?): use the relaxed
+            thresholds (gap_threshold_seconds / trim_to_seconds), because some
+            breath between ideas sounds professional.
+          - Mid-phrase (previous word ends with ,;: or no punctuation): use the
+            tighter mid-phrase thresholds, because a 0.4s pause inside a single
+            sentence sounds awkward.
+
+        This mirrors how editors like Descript handle "smooth speech": tighten
+        within a clause, breathe between clauses.
+        """
         import logging
         logger = logging.getLogger(__name__)
 
@@ -560,27 +607,42 @@ class VideoExportService:
         )
         cuts: list[tuple[float, float]] = []
 
+        sentence_enders = ('.', '!', '?', '…')
+
         for previous_word, next_word in zip(words, words[1:]):
             gap_start = previous_word.end_seconds
             gap_end = next_word.start_seconds
             gap_duration = gap_end - gap_start
 
-            if gap_duration < gap_threshold_seconds:
+            prev_text = previous_word.text.rstrip()
+            ends_sentence = prev_text.endswith(sentence_enders)
+
+            if ends_sentence:
+                tier_threshold = gap_threshold_seconds
+                tier_trim_to = trim_to_seconds
+                tier_label = 'sentence-end'
+            else:
+                tier_threshold = mid_phrase_gap_threshold_seconds
+                tier_trim_to = mid_phrase_trim_to_seconds
+                tier_label = 'mid-phrase'
+
+            if gap_duration < tier_threshold:
                 continue
             if gap_duration >= long_silence_threshold_seconds:
                 continue
-            if gap_duration <= trim_to_seconds:
+            if gap_duration <= tier_trim_to:
                 continue
 
-            cut_start = gap_start + trim_to_seconds / 2
-            cut_end = gap_end - trim_to_seconds / 2
+            cut_start = gap_start + tier_trim_to / 2
+            cut_end = gap_end - tier_trim_to / 2
             if cut_end - cut_start < settings.render_min_segment_seconds:
                 continue
 
             cuts.append((cut_start, cut_end))
             logger.info(
-                f"_find_word_gap_cuts: Gap {gap_duration:.3f}s between "
-                f"'{previous_word.text}' and '{next_word.text}', cut from {cut_start:.3f} to {cut_end:.3f}"
+                f"_find_word_gap_cuts[{tier_label}]: Gap {gap_duration:.3f}s between "
+                f"'{previous_word.text}' and '{next_word.text}', "
+                f"trimmed to {tier_trim_to:.3f}s ({cut_start:.3f}-{cut_end:.3f})"
             )
 
         logger.info(f"_find_word_gap_cuts: Total cuts found: {len(cuts)}")
