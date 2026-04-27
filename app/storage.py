@@ -35,6 +35,37 @@ class ArtifactWriter:
         
         public_url = f"{settings.r2_public_base_url}/{remote_key}"
         return public_url
+
+    def delete_from_r2(self, *, remote_key: str) -> None:
+        s3 = self._get_s3_client()
+        s3.delete_object(Bucket=settings.r2_bucket_name, Key=remote_key)
+
+    def extract_r2_key_from_url(self, url: str) -> str | None:
+        """Best-effort recovery of the bucket key from a URL previously issued by
+        this R2 bucket. Handles:
+          - Public CDN URLs: '<r2_public_base_url>/<key>'
+          - Path-style endpoint URLs: '<r2_endpoint>/<bucket>/<key>'
+          - Presigned URLs with query strings (the `?...` tail is stripped).
+        Returns None if the URL does not look like it belongs to this bucket.
+        """
+        if not url:
+            return None
+
+        stripped = url.split('?', 1)[0].rstrip('/')
+
+        public_base = (settings.r2_public_base_url or '').rstrip('/')
+        if public_base and stripped.startswith(public_base + '/'):
+            return stripped[len(public_base) + 1:]
+
+        endpoint = (settings.r2_endpoint or '').rstrip('/')
+        bucket = settings.r2_bucket_name or ''
+        if endpoint and bucket:
+            path_style = f'{endpoint}/{bucket}/'
+            if stripped.startswith(path_style):
+                return stripped[len(path_style):]
+
+        return None
+
     def write(
         self,
         *,

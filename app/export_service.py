@@ -22,12 +22,17 @@ def _cleanup_job_workspace(
     job_uuid: str,
     keep_paths: list[Path],
     resolved_inputs: list[ResolvedInput],
+    artifact_writer: ArtifactWriter | None = None,
+    delete_remote_inputs: bool = False,
 ) -> None:
     """Remove every intermediate artifact for a completed export job.
 
     Keeps only the files whose absolute paths match `keep_paths`, plus removes
     any downloaded remote-source input cached at <artifact_root>/_downloads/.
     Finally collapses empty subdirectories under the job folder.
+
+    If `delete_remote_inputs=True` and an `artifact_writer` is provided, also
+    deletes the corresponding source objects from R2 (best-effort, per input).
 
     All errors are logged; this helper never raises to avoid masking a
     successful export response.
@@ -53,6 +58,27 @@ def _cleanup_job_workspace(
                 logger.info(f"_cleanup_job_workspace: removed download cache {local_path}")
         except Exception as exc:
             logger.warning(f"_cleanup_job_workspace: failed to remove {local_path}: {exc}")
+
+    # 1b) Delete the source objects from R2 so the temporary uploaded parts do
+    # not accumulate in the bucket after the merge/export finishes.
+    if delete_remote_inputs and artifact_writer is not None:
+        for resolved in resolved_inputs:
+            reference = getattr(resolved, 'reference', None) or ''
+            if not reference.startswith(('http://', 'https://')):
+                continue
+            try:
+                remote_key = artifact_writer.extract_r2_key_from_url(reference)
+            except Exception as exc:
+                logger.warning(f"_cleanup_job_workspace: key extraction failed for {reference}: {exc}")
+                continue
+            if not remote_key:
+                logger.info(f"_cleanup_job_workspace: skipping remote delete, URL not recognized as bucket-owned: {reference}")
+                continue
+            try:
+                artifact_writer.delete_from_r2(remote_key=remote_key)
+                logger.info(f"_cleanup_job_workspace: deleted R2 object '{remote_key}' (source: {reference})")
+            except Exception as exc:
+                logger.warning(f"_cleanup_job_workspace: failed to delete R2 '{remote_key}': {exc}")
 
     # 2) Walk the job workspace and remove every non-kept file, bottom up.
     job_dir = Path(settings.artifact_root) / job_uuid
@@ -216,6 +242,8 @@ class VideoExportService:
                 job_uuid=request.job_uuid,
                 keep_paths=[output_path],
                 resolved_inputs=resolved,
+                artifact_writer=self.artifact_writer,
+                delete_remote_inputs=request.cleanup_remote_inputs,
             )
 
         return ExportResponse(
@@ -816,6 +844,8 @@ class VideoMergeExportService:
                 job_uuid=request.job_uuid,
                 keep_paths=[output_path],
                 resolved_inputs=resolved,
+                artifact_writer=self.artifact_writer,
+                delete_remote_inputs=request.cleanup_remote_inputs,
             )
 
         return MergeExportResponse(
