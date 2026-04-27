@@ -152,6 +152,7 @@ class ExportRequest(BaseModel):
     detect_stutters: bool = True
     stutter_max_gap_seconds: float = Field(default=0.4, ge=0.05, le=1.5)
     stutter_max_token_chars: int = Field(default=5, ge=1, le=10)
+    cleanup_intermediates: bool = True
     language: str = 'es'
 
     @model_validator(mode='after')
@@ -174,6 +175,7 @@ class ExportResponse(BaseModel):
 class MergeExportRequest(BaseModel):
     job_uuid: str
     video_paths: list[str] = Field(min_length=1)
+    cleanup_intermediates: bool = True
 
 
 class MergeExportResponse(BaseModel):

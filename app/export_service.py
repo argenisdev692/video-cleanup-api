@@ -17,6 +17,75 @@ from app.transcription import TranscriptionService
 from app.vad import VoiceActivityDetectionService
 
 
+def _cleanup_job_workspace(
+    *,
+    job_uuid: str,
+    keep_paths: list[Path],
+    resolved_inputs: list[ResolvedInput],
+) -> None:
+    """Remove every intermediate artifact for a completed export job.
+
+    Keeps only the files whose absolute paths match `keep_paths`, plus removes
+    any downloaded remote-source input cached at <artifact_root>/_downloads/.
+    Finally collapses empty subdirectories under the job folder.
+
+    All errors are logged; this helper never raises to avoid masking a
+    successful export response.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        keep_set = {p.resolve() for p in keep_paths}
+    except Exception:
+        keep_set = set(keep_paths)
+
+    # 1) Remove downloaded remote input caches belonging to this job.
+    for resolved in resolved_inputs:
+        if not getattr(resolved, 'downloaded', False):
+            continue
+        local_path = getattr(resolved, 'local_path', None)
+        if not local_path:
+            continue
+        try:
+            if Path(local_path).exists():
+                Path(local_path).unlink()
+                logger.info(f"_cleanup_job_workspace: removed download cache {local_path}")
+        except Exception as exc:
+            logger.warning(f"_cleanup_job_workspace: failed to remove {local_path}: {exc}")
+
+    # 2) Walk the job workspace and remove every non-kept file, bottom up.
+    job_dir = Path(settings.artifact_root) / job_uuid
+    if not job_dir.exists():
+        return
+
+    try:
+        entries = sorted(job_dir.rglob('*'), key=lambda p: len(p.parts), reverse=True)
+    except Exception as exc:
+        logger.warning(f"_cleanup_job_workspace: failed to scan {job_dir}: {exc}")
+        return
+
+    for path in entries:
+        try:
+            if path.is_file() or path.is_symlink():
+                try:
+                    resolved_path = path.resolve()
+                except Exception:
+                    resolved_path = path
+                if resolved_path in keep_set:
+                    continue
+                path.unlink()
+                logger.info(f"_cleanup_job_workspace: removed file {path}")
+            elif path.is_dir():
+                try:
+                    path.rmdir()
+                    logger.info(f"_cleanup_job_workspace: removed empty dir {path}")
+                except OSError:
+                    pass
+        except Exception as exc:
+            logger.warning(f"_cleanup_job_workspace: failed on {path}: {exc}")
+
+
 class VideoExportService:
     def __init__(
         self,
@@ -141,6 +210,13 @@ class VideoExportService:
         }
         if diagnostics_r2_error:
             diagnostics['r2_upload_error'] = diagnostics_r2_error
+
+        if request.cleanup_intermediates:
+            _cleanup_job_workspace(
+                job_uuid=request.job_uuid,
+                keep_paths=[output_path],
+                resolved_inputs=resolved,
+            )
 
         return ExportResponse(
             job_uuid=request.job_uuid,
@@ -734,6 +810,13 @@ class VideoMergeExportService:
         }
         if r2_error:
             diagnostics['r2_upload_error'] = r2_error
+
+        if request.cleanup_intermediates:
+            _cleanup_job_workspace(
+                job_uuid=request.job_uuid,
+                keep_paths=[output_path],
+                resolved_inputs=resolved,
+            )
 
         return MergeExportResponse(
             job_uuid=request.job_uuid,
