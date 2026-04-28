@@ -181,10 +181,6 @@ class VideoExportService:
                     gap_threshold_seconds=request.word_gap_threshold_seconds,
                     trim_to_seconds=request.word_gap_trim_to_seconds,
                     long_silence_threshold_seconds=request.silence_threshold_seconds,
-                    mid_phrase_gap_threshold_seconds=request.mid_phrase_gap_threshold_seconds,
-                    mid_phrase_trim_to_seconds=request.mid_phrase_trim_to_seconds,
-                    breath_gap_threshold_seconds=request.breath_gap_threshold_seconds,
-                    breath_trim_to_seconds=request.breath_trim_to_seconds,
                 )
             transcription_diagnostics['word_gap_cut_ranges'] = [
                 [round(s, 3), round(e, 3)] for s, e in word_gap_cuts
@@ -580,26 +576,7 @@ class VideoExportService:
         gap_threshold_seconds: float,
         trim_to_seconds: float,
         long_silence_threshold_seconds: float,
-        mid_phrase_gap_threshold_seconds: float = 0.50,
-        mid_phrase_trim_to_seconds: float = 0.20,
-        breath_gap_threshold_seconds: float = 0.65,
-        breath_trim_to_seconds: float = 0.28,
     ) -> list[tuple[float, float]]:
-        """Compress unnatural word gaps using a 3-tier strategy aligned with
-        how professional editors (Descript, Premiere Pro) treat punctuation:
-
-          - Boundary: previous word ends with '.!?…'  (sentence boundary)
-              -> use `gap_threshold_seconds` / `trim_to_seconds` (loosest).
-                 People breathe most between ideas, that breath is natural.
-          - Breath:   previous word ends with ',;:'   (clause/breath pause)
-              -> use `breath_gap_threshold_seconds` / `breath_trim_to_seconds`.
-                 Commas mark a natural breath; collapsing them to <0.2s makes
-                 speech sound rushed and robotic.
-          - Hesitation: previous word ends with no punctuation
-              -> use `mid_phrase_gap_threshold_seconds` / `mid_phrase_trim_to_seconds`
-                 (tightest). These gaps usually mean the speaker hesitated
-                 mid-thought; tightening them makes delivery feel decisive.
-        """
         import logging
         logger = logging.getLogger(__name__)
 
@@ -614,46 +591,27 @@ class VideoExportService:
         )
         cuts: list[tuple[float, float]] = []
 
-        boundary_enders = ('.', '!', '?', '…')
-        breath_enders = (',', ';', ':')
-
         for previous_word, next_word in zip(words, words[1:]):
             gap_start = previous_word.end_seconds
             gap_end = next_word.start_seconds
             gap_duration = gap_end - gap_start
 
-            prev_text = previous_word.text.rstrip()
-
-            if prev_text.endswith(boundary_enders):
-                tier_threshold = gap_threshold_seconds
-                tier_trim_to = trim_to_seconds
-                tier_label = 'boundary'
-            elif prev_text.endswith(breath_enders):
-                tier_threshold = breath_gap_threshold_seconds
-                tier_trim_to = breath_trim_to_seconds
-                tier_label = 'breath'
-            else:
-                tier_threshold = mid_phrase_gap_threshold_seconds
-                tier_trim_to = mid_phrase_trim_to_seconds
-                tier_label = 'hesitation'
-
-            if gap_duration < tier_threshold:
+            if gap_duration < gap_threshold_seconds:
                 continue
             if gap_duration >= long_silence_threshold_seconds:
                 continue
-            if gap_duration <= tier_trim_to:
+            if gap_duration <= trim_to_seconds:
                 continue
 
-            cut_start = gap_start + tier_trim_to / 2
-            cut_end = gap_end - tier_trim_to / 2
+            cut_start = gap_start + trim_to_seconds / 2
+            cut_end = gap_end - trim_to_seconds / 2
             if cut_end - cut_start < settings.render_min_segment_seconds:
                 continue
 
             cuts.append((cut_start, cut_end))
             logger.info(
-                f"_find_word_gap_cuts[{tier_label}]: Gap {gap_duration:.3f}s between "
-                f"'{previous_word.text}' and '{next_word.text}', "
-                f"trimmed to {tier_trim_to:.3f}s ({cut_start:.3f}-{cut_end:.3f})"
+                f"_find_word_gap_cuts: Gap {gap_duration:.3f}s between "
+                f"'{previous_word.text}' and '{next_word.text}', cut from {cut_start:.3f} to {cut_end:.3f}"
             )
 
         logger.info(f"_find_word_gap_cuts: Total cuts found: {len(cuts)}")
