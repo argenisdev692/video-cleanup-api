@@ -183,6 +183,8 @@ class VideoExportService:
                     long_silence_threshold_seconds=request.silence_threshold_seconds,
                     mid_phrase_gap_threshold_seconds=request.mid_phrase_gap_threshold_seconds,
                     mid_phrase_trim_to_seconds=request.mid_phrase_trim_to_seconds,
+                    breath_gap_threshold_seconds=request.breath_gap_threshold_seconds,
+                    breath_trim_to_seconds=request.breath_trim_to_seconds,
                 )
             transcription_diagnostics['word_gap_cut_ranges'] = [
                 [round(s, 3), round(e, 3)] for s, e in word_gap_cuts
@@ -578,20 +580,25 @@ class VideoExportService:
         gap_threshold_seconds: float,
         trim_to_seconds: float,
         long_silence_threshold_seconds: float,
-        mid_phrase_gap_threshold_seconds: float = 0.30,
-        mid_phrase_trim_to_seconds: float = 0.15,
+        mid_phrase_gap_threshold_seconds: float = 0.50,
+        mid_phrase_trim_to_seconds: float = 0.20,
+        breath_gap_threshold_seconds: float = 0.65,
+        breath_trim_to_seconds: float = 0.28,
     ) -> list[tuple[float, float]]:
-        """Compress unnatural word gaps. Two-tier strategy:
+        """Compress unnatural word gaps using a 3-tier strategy aligned with
+        how professional editors (Descript, Premiere Pro) treat punctuation:
 
-          - Between sentences (previous word ends with .!?): use the relaxed
-            thresholds (gap_threshold_seconds / trim_to_seconds), because some
-            breath between ideas sounds professional.
-          - Mid-phrase (previous word ends with ,;: or no punctuation): use the
-            tighter mid-phrase thresholds, because a 0.4s pause inside a single
-            sentence sounds awkward.
-
-        This mirrors how editors like Descript handle "smooth speech": tighten
-        within a clause, breathe between clauses.
+          - Boundary: previous word ends with '.!?…'  (sentence boundary)
+              -> use `gap_threshold_seconds` / `trim_to_seconds` (loosest).
+                 People breathe most between ideas, that breath is natural.
+          - Breath:   previous word ends with ',;:'   (clause/breath pause)
+              -> use `breath_gap_threshold_seconds` / `breath_trim_to_seconds`.
+                 Commas mark a natural breath; collapsing them to <0.2s makes
+                 speech sound rushed and robotic.
+          - Hesitation: previous word ends with no punctuation
+              -> use `mid_phrase_gap_threshold_seconds` / `mid_phrase_trim_to_seconds`
+                 (tightest). These gaps usually mean the speaker hesitated
+                 mid-thought; tightening them makes delivery feel decisive.
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -607,7 +614,8 @@ class VideoExportService:
         )
         cuts: list[tuple[float, float]] = []
 
-        sentence_enders = ('.', '!', '?', '…')
+        boundary_enders = ('.', '!', '?', '…')
+        breath_enders = (',', ';', ':')
 
         for previous_word, next_word in zip(words, words[1:]):
             gap_start = previous_word.end_seconds
@@ -615,16 +623,19 @@ class VideoExportService:
             gap_duration = gap_end - gap_start
 
             prev_text = previous_word.text.rstrip()
-            ends_sentence = prev_text.endswith(sentence_enders)
 
-            if ends_sentence:
+            if prev_text.endswith(boundary_enders):
                 tier_threshold = gap_threshold_seconds
                 tier_trim_to = trim_to_seconds
-                tier_label = 'sentence-end'
+                tier_label = 'boundary'
+            elif prev_text.endswith(breath_enders):
+                tier_threshold = breath_gap_threshold_seconds
+                tier_trim_to = breath_trim_to_seconds
+                tier_label = 'breath'
             else:
                 tier_threshold = mid_phrase_gap_threshold_seconds
                 tier_trim_to = mid_phrase_trim_to_seconds
-                tier_label = 'mid-phrase'
+                tier_label = 'hesitation'
 
             if gap_duration < tier_threshold:
                 continue

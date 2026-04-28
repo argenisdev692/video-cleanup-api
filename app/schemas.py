@@ -149,8 +149,10 @@ class ExportRequest(BaseModel):
     compact_word_gaps: bool = True
     word_gap_threshold_seconds: float = Field(default=0.55, ge=0.2, le=2.0)
     word_gap_trim_to_seconds: float = Field(default=0.30, ge=0.05, le=0.6)
-    mid_phrase_gap_threshold_seconds: float = Field(default=0.30, ge=0.1, le=1.5)
-    mid_phrase_trim_to_seconds: float = Field(default=0.15, ge=0.05, le=0.5)
+    mid_phrase_gap_threshold_seconds: float = Field(default=0.50, ge=0.1, le=1.5)
+    mid_phrase_trim_to_seconds: float = Field(default=0.20, ge=0.05, le=0.5)
+    breath_gap_threshold_seconds: float = Field(default=0.65, ge=0.1, le=2.0)
+    breath_trim_to_seconds: float = Field(default=0.28, ge=0.05, le=0.6)
     detect_stutters: bool = True
     stutter_max_gap_seconds: float = Field(default=0.4, ge=0.05, le=1.5)
     stutter_max_token_chars: int = Field(default=5, ge=1, le=10)
