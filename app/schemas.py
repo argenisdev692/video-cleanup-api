@@ -189,3 +189,48 @@ class MergeExportResponse(BaseModel):
     storage_url: str | None = None
     duration_seconds: float
     diagnostics: dict[str, Any] = Field(default_factory=dict)
+
+
+# ---------------------------------------------------------------------------
+# Async queue (arq + Redis) schemas
+# ---------------------------------------------------------------------------
+
+
+class EnqueuedJob(BaseModel):
+    job_uuid: str
+    job_id: str | None = None
+    queue_status: str  # queued | duplicate | error
+    detail: str | None = None
+
+
+class BatchExportRequest(BaseModel):
+    items: list[ExportRequest] = Field(min_length=1, max_length=100)
+
+
+class BatchAnalysisRequest(BaseModel):
+    items: list[AnalysisRequest] = Field(min_length=1, max_length=100)
+
+
+class BatchMergeExportRequest(BaseModel):
+    items: list[MergeExportRequest] = Field(min_length=1, max_length=100)
+
+
+class BatchEnqueueResponse(BaseModel):
+    total: int
+    queued: int
+    duplicates: int
+    errors: int
+    jobs: list[EnqueuedJob]
+
+
+class JobStatusResponse(BaseModel):
+    job_id: str
+    status: str  # deferred | queued | in_progress | complete | not_found
+    success: bool | None = None
+    result: Any | None = None
+    enqueue_time: str | None = None
+    start_time: str | None = None
+    finish_time: str | None = None
+    function: str | None = None
+    queue_name: str | None = None
+    error: str | None = None
