@@ -42,7 +42,7 @@ class RulesPayload(BaseModel):
         'PAUSA',
         'PAUZA',
     ])
-    silence_threshold_seconds: float = 2.0
+    silence_threshold_seconds: float = 3.0
     silence_trim_to_seconds: float | None = None
     detect_fillers: bool = True
     detect_repeated_words: bool = True
@@ -128,7 +128,7 @@ class HealthResponse(BaseModel):
 class ExportRequest(BaseModel):
     job_uuid: str
     video_paths: list[str] = Field(min_length=1)
-    silence_threshold_seconds: float = Field(default=2.0, ge=0.1, le=10.0)
+    silence_threshold_seconds: float = Field(default=3.0, ge=0.1, le=10.0)
     silence_trim_to_seconds: float | None = Field(default=None, ge=0.1, le=5.0)
     pause_keywords: list[str] = Field(default_factory=lambda: [
         'PAUSA ACA',
@@ -147,8 +147,8 @@ class ExportRequest(BaseModel):
     detect_fillers: bool = True
     filler_terms: list[str] = Field(default_factory=lambda: list(settings.filler_terms))
     compact_word_gaps: bool = True
-    word_gap_threshold_seconds: float = Field(default=0.55, ge=0.2, le=2.0)
-    word_gap_trim_to_seconds: float = Field(default=0.28, ge=0.05, le=0.6)
+    word_gap_threshold_seconds: float = Field(default=0.65, ge=0.2, le=2.0)
+    word_gap_trim_to_seconds: float = Field(default=0.35, ge=0.05, le=0.6)
     detect_stutters: bool = True
     stutter_max_gap_seconds: float = Field(default=0.4, ge=0.05, le=1.5)
     stutter_max_token_chars: int = Field(default=5, ge=1, le=10)
