@@ -349,17 +349,31 @@ async def get_job_status(
         return JobStatusResponse(job_id=job_id, status=status.value)
 
     info = await job.info()
+
+    def _iso(value: Any) -> str | None:
+        return value.isoformat() if value is not None else None
+
     response = JobStatusResponse(
         job_id=job_id,
         status=status.value,
-        enqueue_time=info.enqueue_time.isoformat() if info and info.enqueue_time else None,
-        start_time=info.start_time.isoformat() if info and info.start_time else None,
-        finish_time=info.finish_time.isoformat() if info and info.finish_time else None,
-        function=info.function if info else None,
-        queue_name=info.queue_name if info else None,
+        enqueue_time=_iso(getattr(info, 'enqueue_time', None)),
+        start_time=_iso(getattr(info, 'start_time', None)),
+        finish_time=_iso(getattr(info, 'finish_time', None)),
+        function=getattr(info, 'function', None),
+        queue_name=getattr(info, 'queue_name', None),
     )
 
-    if status == JobStatus.complete:
+    # JobResult (only present when complete) carries success + result directly,
+    # avoiding an extra await job.result() round-trip.
+    success_attr = getattr(info, 'success', None)
+    if success_attr is not None:
+        response.success = bool(success_attr)
+        result_attr = getattr(info, 'result', None)
+        if response.success:
+            response.result = result_attr
+        else:
+            response.error = str(result_attr) if result_attr is not None else 'job failed'
+    elif status == JobStatus.complete:
         try:
             result: Any = await job.result(timeout=0.1)
             response.success = True
