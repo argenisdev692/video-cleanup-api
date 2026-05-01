@@ -129,12 +129,32 @@ redis_version=X.Y.Z mem_usage=...
 
 ---
 
+## 4.1 URLs en uso
+
+### Backend (Railway)
+
+| Servicio | URL pública |
+|---|---|
+| API | `https://video-cleanup-api-production.up.railway.app` |
+| Health check | `https://video-cleanup-api-production.up.railway.app/health` |
+| Docs (Swagger) | `https://video-cleanup-api-production.up.railway.app/docs` |
+| Worker | sin URL (proceso background) |
+
+### Frontend (local)
+
+| Página | URL local | Endpoint backend que consume |
+|---|---|---|
+| Batch de exports | `http://localhost:3000/video-export-batch` | `POST /jobs/video-export/batch` |
+| Merge de jobs | `http://localhost:3000/video-export-merge-job` | `POST /jobs/video-export-merge` |
+
+---
+
 ## 5. Probar el flujo end-to-end
 
 ### 5.1 Encolar un export
 
 ```bash
-curl -X POST https://<api>.up.railway.app/jobs/video-export \
+curl -X POST https://video-cleanup-api-production.up.railway.app/jobs/video-export \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -151,7 +171,7 @@ Respuesta:
 ### 5.2 Encolar lote
 
 ```bash
-curl -X POST https://<api>.up.railway.app/jobs/video-export/batch \
+curl -X POST https://video-cleanup-api-production.up.railway.app/jobs/video-export/batch \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -177,7 +197,7 @@ Respuesta:
 ### 5.3 Consultar estado
 
 ```bash
-curl https://<api>.up.railway.app/jobs/batch-001 \
+curl https://video-cleanup-api-production.up.railway.app/jobs/batch-001 \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN"
 ```
 
@@ -188,14 +208,14 @@ Cuando `status=complete` y `success=true`, el campo `result` contiene el `Export
 ### 5.4 Abortar un job
 
 ```bash
-curl -X DELETE https://<api>.up.railway.app/jobs/batch-001 \
+curl -X DELETE https://video-cleanup-api-production.up.railway.app/jobs/batch-001 \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN"
 ```
 
 ### 5.5 Encolar lote de merge (unir varios MP4 sin re-procesar)
 
 ```bash
-curl -X POST https://<api>.up.railway.app/jobs/video-export-merge/batch \
+curl -X POST https://video-cleanup-api-production.up.railway.app/jobs/video-export-merge/batch \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -214,7 +234,7 @@ curl -X POST https://<api>.up.railway.app/jobs/video-export-merge/batch \
 ### 5.6 Encolar lote de análisis
 
 ```bash
-curl -X POST https://<api>.up.railway.app/jobs/analysis/batch \
+curl -X POST https://video-cleanup-api-production.up.railway.app/jobs/analysis/batch \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -238,7 +258,7 @@ Pipeline en 2 etapas: limpiar cada parte individualmente, luego unir los limpios
 ### Etapa 1 — Encolar las 30 partes a limpiar
 
 ```bash
-curl -X POST https://<api>.up.railway.app/jobs/video-export/batch \
+curl -X POST https://video-cleanup-api-production.up.railway.app/jobs/video-export/batch \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -267,7 +287,7 @@ Respuesta inmediata (en milisegundos, no espera procesamiento):
 
 ```bash
 # Para cada uno de los 30 job_id:
-curl https://<api>.up.railway.app/jobs/curso-A-parte-01 \
+curl https://video-cleanup-api-production.up.railway.app/jobs/curso-A-parte-01 \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN"
 ```
 
@@ -293,7 +313,7 @@ Guarda los 30 `result.storage_url`.
 ### Etapa 3 — Unir los 30 limpios en un final
 
 ```bash
-curl -X POST https://<api>.up.railway.app/jobs/video-export-merge \
+curl -X POST https://video-cleanup-api-production.up.railway.app/jobs/video-export-merge \
   -H "Authorization: Bearer $TUTORIAL_CLEANUP_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
