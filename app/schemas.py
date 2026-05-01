@@ -42,7 +42,7 @@ class RulesPayload(BaseModel):
         'PAUSA',
         'PAUZA',
     ])
-    silence_threshold_seconds: float = 3.0
+    silence_threshold_seconds: float = 1.0
     silence_trim_to_seconds: float | None = None
     detect_fillers: bool = True
     detect_repeated_words: bool = True
@@ -128,7 +128,7 @@ class HealthResponse(BaseModel):
 class ExportRequest(BaseModel):
     job_uuid: str
     video_paths: list[str] = Field(min_length=1)
-    silence_threshold_seconds: float = Field(default=3.0, ge=0.1, le=10.0)
+    silence_threshold_seconds: float = Field(default=1.0, ge=0.1, le=10.0)
     silence_trim_to_seconds: float | None = Field(default=None, ge=0.1, le=5.0)
     pause_keywords: list[str] = Field(default_factory=lambda: [
         'PAUSA ACA',
