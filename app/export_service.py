@@ -347,32 +347,33 @@ class VideoExportService:
             '-movflags', '+faststart',
         ]
 
-        # Aspect-preserving normalization to 1920x1080 (matches _merge_videos).
-        # Idempotent: a clip already at 1920x1080@30fps comes out unchanged.
-        scale_pad_chain = (
-            'scale=1920:1080:force_original_aspect_ratio=decrease,'
-            'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30'
-        )
-        audio_norm_chain = (
-            f'aformat=sample_rates={settings.export_audio_sample_rate}'
-            f':channel_layouts=stereo'
-        )
-
+        # Build trim+concat first, then apply scale+pad ONCE on the merged
+        # output. Doing it inline per trim-chain caused ffmpeg to fail with
+        # 'Failed to configure output pad on Parsed_scale_*' when there were
+        # many keep_ranges (concurrent scale filter init).
         filter_parts: list[str] = []
         concat_inputs: list[str] = []
         for i, (start, end) in enumerate(keep_ranges):
             filter_parts.append(
-                f'[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS,'
-                f'{scale_pad_chain}[v{i}]'
+                f'[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[v{i}]'
             )
             filter_parts.append(
-                f'[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS,'
-                f'{audio_norm_chain}[a{i}]'
+                f'[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}]'
             )
             concat_inputs.append(f'[v{i}][a{i}]')
         filter_parts.append(
             ''.join(concat_inputs)
-            + f'concat=n={len(keep_ranges)}:v=1:a=1[outv][outa]'
+            + f'concat=n={len(keep_ranges)}:v=1:a=1[cv][ca]'
+        )
+        # Aspect-preserving normalization to 1920x1080 (matches _merge_videos).
+        # Idempotent: a clip already at 1920x1080@30fps comes out unchanged.
+        filter_parts.append(
+            '[cv]scale=1920:1080:force_original_aspect_ratio=decrease,'
+            'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[outv]'
+        )
+        filter_parts.append(
+            f'[ca]aformat=sample_rates={settings.export_audio_sample_rate}'
+            f':channel_layouts=stereo[outa]'
         )
 
         command = [
