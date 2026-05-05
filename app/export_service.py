@@ -329,6 +329,9 @@ class VideoExportService:
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / 'export.mp4'
 
+        # Encode flags WITHOUT '-s' / '-aspect': scaling is handled by the
+        # scale+pad filter below so we preserve the source aspect ratio
+        # (vertical / 4:3 / non-16:9 inputs would otherwise be stretched).
         encode_flags = [
             '-c:v', 'libx264',
             '-preset', settings.render_preset,
@@ -336,9 +339,7 @@ class VideoExportService:
             '-maxrate', settings.export_video_maxrate,
             '-bufsize', settings.export_video_bufsize,
             '-r', '30',
-            '-s', '1920x1080',
             '-pix_fmt', 'yuv420p',
-            '-aspect', '16:9',
             '-c:a', 'aac',
             '-b:a', settings.export_audio_bitrate,
             '-ar', str(settings.export_audio_sample_rate),
@@ -346,41 +347,41 @@ class VideoExportService:
             '-movflags', '+faststart',
         ]
 
-        if len(keep_ranges) == 1:
-            start, end = keep_ranges[0]
-            command = [
-                ffmpeg_path, '-y',
-                '-i', str(video.local_path),
-                '-ss', str(start),
-                '-to', str(end),
-            ] + encode_flags + [str(output_path)]
-        else:
-            filter_parts: list[str] = []
-            concat_inputs: list[str] = []
-            for i, (start, end) in enumerate(keep_ranges):
-                filter_parts.append(
-                    f'[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS[v{i}]'
-                )
-                filter_parts.append(
-                    f'[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS[a{i}]'
-                )
-                concat_inputs.append(f'[v{i}][a{i}]')
-            filter_parts.append(
-                ''.join(concat_inputs)
-                + f'concat=n={len(keep_ranges)}:v=1:a=1[outv][outa_raw]'
-            )
-            filter_parts.append(
-                f'[outa_raw]aformat=sample_rates={settings.export_audio_sample_rate}'
-                f':channel_layouts=stereo[outa]'
-            )
+        # Aspect-preserving normalization to 1920x1080 (matches _merge_videos).
+        # Idempotent: a clip already at 1920x1080@30fps comes out unchanged.
+        scale_pad_chain = (
+            'scale=1920:1080:force_original_aspect_ratio=decrease,'
+            'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30'
+        )
+        audio_norm_chain = (
+            f'aformat=sample_rates={settings.export_audio_sample_rate}'
+            f':channel_layouts=stereo'
+        )
 
-            command = [
-                ffmpeg_path, '-y',
-                '-i', str(video.local_path),
-                '-filter_complex', ';'.join(filter_parts),
-                '-map', '[outv]',
-                '-map', '[outa]',
-            ] + encode_flags + [str(output_path)]
+        filter_parts: list[str] = []
+        concat_inputs: list[str] = []
+        for i, (start, end) in enumerate(keep_ranges):
+            filter_parts.append(
+                f'[0:v]trim=start={start}:end={end},setpts=PTS-STARTPTS,'
+                f'{scale_pad_chain}[v{i}]'
+            )
+            filter_parts.append(
+                f'[0:a]atrim=start={start}:end={end},asetpts=PTS-STARTPTS,'
+                f'{audio_norm_chain}[a{i}]'
+            )
+            concat_inputs.append(f'[v{i}][a{i}]')
+        filter_parts.append(
+            ''.join(concat_inputs)
+            + f'concat=n={len(keep_ranges)}:v=1:a=1[outv][outa]'
+        )
+
+        command = [
+            ffmpeg_path, '-y',
+            '-i', str(video.local_path),
+            '-filter_complex', ';'.join(filter_parts),
+            '-map', '[outv]',
+            '-map', '[outa]',
+        ] + encode_flags + [str(output_path)]
 
         completed = subprocess.run(command, capture_output=True, text=True)
         if completed.returncode != 0:
